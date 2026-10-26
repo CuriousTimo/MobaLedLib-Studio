@@ -1,0 +1,77 @@
+# ---------- build output ----------
+/target/
+**/target/
+app/src-tauri/gen/
+*.pdb
+
+# Local clone of the upstream MobaLedLib repo (used as reference, not part of this project)
+/upstream/
+
+# ---------- macOS ----------
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+# AppleDouble resource forks, created by macOS on SMB/NAS shares and USB drives
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+.apdisk
+.AppleDB
+.AppleDesktop
+Network Trash Folder
+Temporary Items
+
+# ---------- Synology / QNAP / other NAS & SMB metadata ----------
+@eaDir/
+#recycle/
+#snapshot/
+.SynologyWorkingDirectory
+*@SynoResource
+*@SynoEAStream
+.@__thumb/
+.@__qini
+.smbdelete*
+.nfs*
+
+# ---------- Windows ----------
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+desktop.ini
+$RECYCLE.BIN/
+*.lnk
+
+# ---------- Linux ----------
+*~
+.directory
+.Trash-*
+
+# ---------- editors & tools ----------
+.idea/
+.vscode/
+*.swp
+*.swo
+*.code-workspace
+.claude/settings.local.json
+.claude/worktrees/
+
+# ---------- local files that must never be committed ----------
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.mobileprovision
+# Excel lock/temp files
+~$*
+# Layouts/exports used for local testing (example files live in examples/)
+/*.MLL_pgf
+/*.json
+!/package.json

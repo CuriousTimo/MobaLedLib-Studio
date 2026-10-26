@@ -1,0 +1,16 @@
+[workspace]
+resolver = "2"
+members = ["crates/mll-core", "crates/mll-cli", "app/src-tauri"]
+
+[workspace.package]
+version = "0.1.0-beta.1"
+edition = "2021"
+license = "LGPL-2.1-or-later"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+encoding_rs = "0.8"
+chrono = "0.4"
+anyhow = "1"

@@ -1,0 +1,13 @@
+[package]
+name = "mll-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Data model, file formats and code generation for MobaLedLib Studio"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+encoding_rs.workspace = true
+chrono.workspace = true

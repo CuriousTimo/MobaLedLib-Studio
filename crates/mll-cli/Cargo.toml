@@ -1,0 +1,16 @@
+[package]
+name = "mll-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Command line tools for MobaLedLib Studio"
+
+[[bin]]
+name = "mll"
+path = "src/main.rs"
+
+[dependencies]
+mll-core = { path = "../mll-core" }
+serde_json.workspace = true
+anyhow.workspace = true
+calamine = "0.30"

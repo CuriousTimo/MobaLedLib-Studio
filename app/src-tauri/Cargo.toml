@@ -1,0 +1,17 @@
+[package]
+name = "mobaledlib-studio"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "MobaLedLib Studio: configure MobaLedLib effects and upload them to the Arduino"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+mll-core = { path = "../../crates/mll-core" }
+serde.workspace = true
+serde_json.workspace = true
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+which = "7"
