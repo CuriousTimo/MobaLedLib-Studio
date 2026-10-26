@@ -144,6 +144,29 @@ impl Catalog {
     pub fn platform(&self, platform: &str, key: &str) -> Option<&str> {
         self.platforms.get(platform)?.get(key).map(|s| s.as_str())
     }
+
+    /// `fill_macro` with the values checked like the effect dialog does (`Check_Par_with_ErrMsg`):
+    /// color lists ("10 0 0", "0 127 0  0 0 0") become separate arguments ("10, 0, 0").
+    pub fn fill(
+        &self,
+        def: &MacroDef,
+        values: &BTreeMap<String, String>,
+        extra: &[String],
+    ) -> Result<FilledMacro, Error> {
+        let values = values
+            .iter()
+            .map(|(k, v)| {
+                let color = self.param(k).is_some_and(|p| p.kind == "RGB" || p.kind == "RGB2");
+                let v = if color {
+                    v.replace(',', " ").split_whitespace().collect::<Vec<_>>().join(", ")
+                } else {
+                    v.clone()
+                };
+                (k.clone(), v)
+            })
+            .collect();
+        fill_macro(def, &values, extra)
+    }
 }
 
 /// Parameter names of a prototype like "Blink3(LED,Cx,InCh,Pause,Act,Val0,Val1,Off)".
@@ -228,6 +251,8 @@ pub fn fill_macro(def: &MacroDef, values: &BTreeMap<String, String>, extra: &[St
             "LED" | "B_LED" => args.push("#LED".into()),
             "InCh" => args.push("#InCh".into()),
             "..." => args.extend(extra.iter().cloned()),
+            // Placeholders like #LED, #InCh and #LocInCh are filled in when the header is generated
+            name if name.starts_with('#') => args.push(name.to_string()),
             "" => {}
             name => {
                 let v = values.get(name).map(|s| s.trim()).unwrap_or("");
@@ -238,19 +263,45 @@ pub fn fill_macro(def: &MacroDef, values: &BTreeMap<String, String>, extra: &[St
             }
         }
     }
-    let macro_text = if def.prototype.contains('(') {
-        format!("{}({})", def.name, args.join(", "))
+    let macro_text = if let Some(open) = def.prototype.find('(') {
+        // The prototype's own head, not the name: "// Set_LEDNr(" must stay a comment
+        format!("{}({})", def.prototype[..open].trim(), args.join(", "))
     } else {
         def.prototype.trim().to_string()
+    };
+
+    // Special_ConstrWarnLight: the LED count is part of the name, and only the Flash variant has WaitT
+    let (macro_text, special_leds) = match (def.prototype.split('(').next().map(str::trim), args.as_slice()) {
+        (Some("ConstrWarnLight"), [led, inch, cnt, min, max, on_t, wait_t, wait_e]) => {
+            let flash = crate::vba::val(wait_t) > 0.0;
+            let mut a = vec![led, inch, min, max, on_t];
+            if flash {
+                a.push(wait_t);
+            }
+            a.push(wait_e);
+            let name = if flash { "ConstrWarnLightFlash" } else { "ConstrWarnLight" };
+            let a: Vec<&str> = a.into_iter().map(|s| s.as_str()).collect();
+            (format!("{name}{}({})", cnt.trim(), a.join(", ")), Some(format!("C1-{}", cnt.trim())))
+        }
+        _ => (macro_text, None),
     };
 
     let named = |n: &str| -> Option<String> { params.iter().position(|p| p == n).and_then(|_| values.get(n).cloned()) };
 
     let single = crate::vba::val_i(&def.single_led_cnt);
     let leds = match def.leds.trim() {
+        _ if special_leds.is_some() => special_leds.unwrap_or_default(),
         "Cx" => {
             let cx = named("Cx").or_else(|| named("B_LED_Cx")).unwrap_or_default();
-            cx_to_leds(&cx, single)
+            let leds = cx_to_leds(&cx, single);
+            if leds.is_empty() {
+                // Without it the effect would get no LED number and silently drop off the LED bus
+                return Err(Error::Invalid(format!(
+                    "the LED channel of {} must be C1, C2, C3, C12, C23 or C_ALL, not '{cx}'",
+                    def.name
+                )));
+            }
+            leds
         }
         "n" => extra.len().to_string(),
         l if l.starts_with("LedCnt") => {
@@ -357,6 +408,66 @@ mod tests {
         let f = fill_macro(&d, &v, &[]).unwrap();
         assert_eq!(f.macro_text, "Const(#LED, C2, #InCh, 0, 255)");
         assert_eq!(f.leds, "C2-2");
+    }
+
+    #[test]
+    fn constr_warn_light_like_excel() {
+        // Test_Special_ConstrWarnLight in the workbook
+        let d =
+            def("ConstrWarnLight(LED,InCh, LEDcnt, MinBrightness, MaxBrightness, OnT, WaitT, WaitE)", "C1-n", "1", "");
+        let mut v = BTreeMap::new();
+        for (k, x) in [
+            ("LEDcnt", "6"),
+            ("MinBrightness", "20"),
+            ("MaxBrightness", "255"),
+            ("OnT", "100 ms"),
+            ("WaitT", "0 ms"),
+            ("WaitE", "300 ms"),
+        ] {
+            v.insert(k.into(), x.into());
+        }
+        let f = fill_macro(&d, &v, &[]).unwrap();
+        assert_eq!(
+            (f.macro_text.as_str(), f.leds.as_str()),
+            ("ConstrWarnLight6(#LED, #InCh, 20, 255, 100 ms, 300 ms)", "C1-6")
+        );
+        v.insert("WaitT".into(), "50 ms".into());
+        let f = fill_macro(&d, &v, &[]).unwrap();
+        assert_eq!(f.macro_text, "ConstrWarnLightFlash6(#LED, #InCh, 20, 255, 100 ms, 50 ms, 300 ms)");
+    }
+
+    #[test]
+    fn comment_macros_stay_comments() {
+        let d = def("// Set_LEDNr(LedCnt_Set)", "LedCnt_Set", "", "");
+        let mut v = BTreeMap::new();
+        v.insert("LedCnt_Set".into(), "10".into());
+        let f = fill_macro(&d, &v, &[]).unwrap();
+        assert_eq!((f.macro_text.as_str(), f.leds.as_str()), ("// Set_LEDNr(10)", "10"));
+    }
+
+    #[test]
+    fn hash_placeholders_are_kept() {
+        let d = def("Flash(LED, Cx, InCh, #LocInCh, MinTime, MaxTime)", "Cx", "1", "1");
+        let mut v = BTreeMap::new();
+        for (k, x) in [("Cx", "C1"), ("MinTime", "1 Sec"), ("MaxTime", "5 Sec")] {
+            v.insert(k.into(), x.into());
+        }
+        assert_eq!(fill_macro(&d, &v, &[]).unwrap().macro_text, "Flash(#LED, C1, #InCh, #LocInCh, 1 Sec, 5 Sec)");
+    }
+
+    #[test]
+    fn servo_gets_its_channel_on_the_led_bus() {
+        let d = def("Servo2(LED, InCh, B_LED_Cx, Servo21, Servo22, ServoT)", "Cx", "2", "-1");
+        let mut v = BTreeMap::new();
+        for (k, x) in [("B_LED_Cx", "C2"), ("Servo21", "1"), ("Servo22", "220"), ("ServoT", "5")] {
+            v.insert(k.into(), x.into());
+        }
+        let f = fill_macro(&d, &v, &[]).unwrap();
+        assert_eq!(f.macro_text, "Servo2(#LED, #InCh, C2, 1, 220, 5)");
+        assert_eq!(f.leds, "C2-2");
+
+        v.insert("B_LED_Cx".into(), "1".into());
+        assert!(fill_macro(&d, &v, &[]).is_err(), "an unknown channel must not give a servo without LEDs");
     }
 
     #[test]

@@ -8,6 +8,19 @@ use serde::Serialize;
 use serde_json::Value;
 use tauri::{AppHandle, Emitter, Manager};
 
+/// `Command` for arduino-cli. On Windows it must not open a console window for every call.
+fn cli_command(cli: &Path) -> Command {
+    #[allow(unused_mut)]
+    let mut cmd = Command::new(cli);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    cmd
+}
+
 /// Name of the sketch the header belongs to; the folder must have the same name.
 const SKETCH: &str = "LEDs_AutoProg";
 
@@ -62,7 +75,7 @@ pub fn find_cli() -> Option<PathBuf> {
 }
 
 fn run_json(cli: &Path, args: &[&str]) -> Result<Value, String> {
-    let out = Command::new(cli).args(args).output().map_err(|e| format!("arduino-cli: {e}"))?;
+    let out = cli_command(cli).args(args).output().map_err(|e| format!("arduino-cli: {e}"))?;
     if !out.status.success() {
         return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
     }
@@ -174,7 +187,7 @@ pub fn build(app: &AppHandle, header: &str, fqbn: &str, port: Option<&str>) -> R
     args.push(work.display().to_string());
     log(app, format!("› arduino-cli {}", args.join(" ")));
 
-    let mut child = Command::new(&cli)
+    let mut child = cli_command(&cli)
         .args(&args)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

@@ -5,6 +5,10 @@
 
 const invoke = window.__TAURI__.core.invoke;
 const listen = window.__TAURI__.event.listen;
+const dialog = window.__TAURI__.dialog;
+
+/** Languages of the effect texts in the catalog (machine translated by the Excel tool, except de and en). */
+const LANGS = [['en', 'English'], ['de', 'Deutsch'], ['nl', 'Nederlands'], ['fr', 'Français'], ['it', 'Italiano'], ['es', 'Español'], ['da', 'Dansk']];
 
 // ---------------------------------------------------------------- state
 
@@ -18,10 +22,15 @@ const state = {
   group: null,         // filter by "Filter" column value
   query: '',
   analysis: null,
-  menu: false,
-  modal: null,         // { type: 'picker' | 'upload' | 'header' | 'settings' | 'confirm', ... }
-  lang: localStorage.getItem('mll.lang') || 'en',
+  modal: null,         // { type: 'picker' | 'upload' | 'header' | 'settings' | 'sheet', ... }
+  lang: storedLang(),
 };
+
+function storedLang() {
+  let l = null;
+  try { l = localStorage.getItem('mll.lang'); } catch { /* storage unavailable */ }
+  return LANGS.some(([v]) => v === l) ? l : 'en';
+}
 
 const FQBN_PRESETS = [
   ['arduino:avr:nano', 'Arduino Nano'],
@@ -65,20 +74,14 @@ const rows = () => sheet()?.rows ?? [];
 
 const ICON = {
   logo: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="5" cy="12" r="3" fill="#F5B83D"/><circle cx="12" cy="12" r="3" fill="#5BD48A"/><circle cx="19" cy="12" r="3" fill="#6CB6FF"/></svg>',
-  chevron: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>',
-  open: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>',
-  save: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 3h11l3 3v13a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M7 3v5h8V3M7 21v-7h10v7"/></svg>',
   upload: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16V4M6 10l6-6 6 6M4 20h16"/></svg>',
   plus: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>',
   search: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9BA4AF" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>',
-  code: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 7l-5 5 5 5M16 7l5 5-5 5"/></svg>',
   gear: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>',
   refresh: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-3-6.7L21 8M21 3v5h-5"/></svg>',
   servo: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#8CC6FF" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="9" width="14" height="10" rx="2"/><circle cx="13" cy="9" r="2.5"/><path d="M13 9l7-5"/></svg>',
   sound: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#C9A6FF" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9z"/><path d="M16 9a4 4 0 0 1 0 6M19 6a8 8 0 0 1 0 12"/></svg>',
   logic: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#7DE0A4" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h6a5 5 0 0 1 0 10H4zM15 12h5"/></svg>',
-  up: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 15l6-6 6 6"/></svg>',
-  down: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>',
 };
 
 function toast(msg, bad = false) {
@@ -113,8 +116,17 @@ function macroOf(text) {
   return cat.byFind.get(name + '(') || cat.byName.get(name) || null;
 }
 
+/** Texts in the chosen language. Each field falls back to English, then German, when it is empty. */
+function localized(text) {
+  const out = {};
+  for (const l of [state.lang, 'en', 'de']) {
+    for (const [k, v] of Object.entries(text?.[l] || {})) if (v && !out[k]) out[k] = v;
+  }
+  return out;
+}
+
 function mtext(m) {
-  return m.text[state.lang] || m.text.en || m.text.de || {};
+  return localized(m.text);
 }
 
 function macroTitle(m) {
@@ -126,7 +138,17 @@ function macroGroups(m) {
 }
 
 function paramText(p) {
-  return p?.text?.[state.lang] || p?.text?.en || p?.text?.de || {};
+  return localized(p?.text);
+}
+
+/** Language independent category key of an effect (its first English group), so switching language keeps the filter. */
+function groupKey(m) {
+  return (m.text.en?.group || m.text.de?.group || '').split('|')[0].trim() || 'Other';
+}
+
+function langSelect() {
+  return `<select class="select" id="lang" aria-label="Language of the effect texts" style="width:auto">
+    ${LANGS.map(([v, n]) => `<option value="${v}" ${v === state.lang ? 'selected' : ''}>${n}</option>`).join('')}</select>`;
 }
 
 /** What a row drives: led | servo | sound | logic */
@@ -165,6 +187,7 @@ function setDirty(d = true) {
   document.title = state.layout ? `${state.layout.name}${d ? ' •' : ''} — MobaLedLib Studio` : 'MobaLedLib Studio';
   const chip = $('#dirty-chip');
   if (chip) chip.hidden = !d;
+  invoke('set_dirty', { dirty: d }).catch(() => {});
 }
 
 function changed({ table = true, inspector = false } = {}) {
@@ -194,6 +217,7 @@ async function analyze() {
 }
 
 function loadLayout(layout, path, imported = false) {
+  if (state.modal) closeModal();
   state.layout = layout;
   state.path = path;
   state.sheet = 0;
@@ -209,13 +233,21 @@ function loadLayout(layout, path, imported = false) {
 
 // ---------------------------------------------------------------- file actions
 
+/** Native "Save / Don't Save / Cancel" question. Returns false if the user cancelled. */
 async function guardUnsaved() {
-  if (!state.dirty) return true;
-  return confirmModal('Discard unsaved changes?', `“${state.layout.name}” has changes that are not saved.`, 'Discard');
+  if (!state.dirty || !state.layout) return true;
+  const answer = await dialog.message('Your changes will be lost if you don’t save them.', {
+    title: `Save changes to “${state.layout.name}”?`,
+    kind: 'warning',
+    buttons: { yes: 'Save', no: 'Don’t Save', cancel: 'Cancel' },
+  });
+  if (answer === 'Save') return actSave(false);
+  return answer === 'Don’t Save';
 }
 
 async function actNew() {
   if (!(await guardUnsaved())) return;
+  if (state.modal) closeModal();
   state.layout = null;
   state.path = null;
   setDirty(false);
@@ -235,6 +267,7 @@ async function actOpen(importPgf = false) {
 }
 
 async function actOpenPath(path) {
+  if (!(await guardUnsaved())) return;
   try {
     const r = await invoke('open_layout_path', { path });
     loadLayout(r.layout, r.path, r.imported);
@@ -244,21 +277,24 @@ async function actOpenPath(path) {
 }
 
 async function actSave(saveAs = false) {
-  if (!state.layout) return;
+  if (!state.layout) return false;
   try {
     const p = await invoke('save_layout', { layout: state.layout, path: saveAs ? null : state.path });
-    if (!p) return;
+    if (!p) return false;
     state.path = p;
     addRecent(p, state.layout.name);
     setDirty(false);
     renderTopbar();
     toast('Saved');
+    return true;
   } catch (e) {
     toast(errText(e), true);
+    return false;
   }
 }
 
 async function actExport() {
+  if (!state.layout) return;
   try {
     const p = await invoke('export_pgf', { layout: state.layout });
     if (p) toast('Exported ' + p.split(/[\\/]/).pop());
@@ -332,40 +368,16 @@ function renderTopbar() {
   const el = $('#topbar');
   if (!el) return;
   const l = state.layout;
-  const menu = state.menu ? `
-    <div class="menu" role="menu" style="left: 44px">
-      ${menuItem('new', 'New layout', '⌘N')}
-      ${menuItem('open', 'Open…', '⌘O')}
-      <hr>
-      ${menuItem('save', 'Save', '⌘S')}
-      ${menuItem('saveas', 'Save as…', '⇧⌘S')}
-      <hr>
-      ${menuItem('import', 'Import .MLL_pgf…', '')}
-      ${menuItem('export', 'Export as .MLL_pgf…', '')}
-      <hr>
-      ${menuItem('settings', 'Layout settings…', '')}
-    </div>` : '';
   el.innerHTML = `
     <div class="left">
       ${ICON.logo}
-      <button class="menu-btn" data-act="menu" aria-haspopup="menu" aria-expanded="${state.menu}">File ${ICON.chevron}</button>
-      <span style="color:#3A414B">|</span>
       <span class="brand">${esc(l.name)}</span>
       <span class="path" title="${esc(state.path || '')}">${esc(state.path || 'not saved yet')}</span>
       <span class="chip warn" id="dirty-chip" ${state.dirty ? '' : 'hidden'}><span class="dot" style="background:var(--accent)"></span>Unsaved changes</span>
     </div>
     <div class="right">
-      <button class="btn" data-act="open">${ICON.open} Open</button>
-      <button class="btn solid" data-act="save">${ICON.save} Save <span class="mono muted" style="font-size:10px">⌘S</span></button>
-      <span style="width:1px;height:22px;background:var(--line)"></span>
-      <button class="btn" data-act="header" title="Show the generated LEDs_AutoProg.h">${ICON.code} Code</button>
       <button class="btn primary" data-act="upload">${ICON.upload} Upload</button>
-    </div>
-    ${menu}`;
-}
-
-function menuItem(act, label, kbd) {
-  return `<button role="menuitem" data-act="${act}"><span>${esc(label)}</span><span class="kbd">${esc(kbd)}</span></button>`;
+    </div>`;
 }
 
 function renderSidebar() {
@@ -587,15 +599,7 @@ function renderInspector() {
         <label class="field">InCnt<input class="input mono" data-bind="in_cnt" value="${r.in_cnt}"></label>
         <label class="field">Loc InCh<input class="input mono" data-bind="loc_in_ch" value="${r.loc_in_ch}"></label>
       </div>
-    </details>
-
-    <div class="row-actions">
-      <button class="btn small" data-act="up" title="Move up">${ICON.up}</button>
-      <button class="btn small" data-act="down" title="Move down">${ICON.down}</button>
-      <button class="btn small" data-act="dup">Duplicate</button>
-      <span style="flex:1"></span>
-      <button class="btn small danger" data-act="del">Delete</button>
-    </div>`;
+    </details>`;
   renderDiag();
 }
 
@@ -679,13 +683,11 @@ function welcomeHtml() {
         <div style="display:flex;align-items:center;gap:10px">${ICON.logo}<b style="font-size:17px">MobaLedLib Studio</b></div>
         <div class="navgroup">
           <div class="label" style="padding:0 8px 6px">Recent</div>
-          ${recent.length ? recent.map((r) => `<button class="recent" data-act="recent" data-path="${esc(r.path)}"><b>${esc(r.name)}</b><span class="p">${esc(r.path)}</span></button>`).join('') : '<div class="hint" style="padding:0 8px">Layouts you open or save show up here.</div>'}
+          ${recent.length ? recent.map((r) => `<button class="recent" data-act="recent" data-path="${esc(r.path)}"><b>${esc(r.name)}</b><span class="p">${esc(r.path)}</span></button>`).join('') : '<div class="hint" style="padding:0 8px">Layouts you open or save show up here. Open one with <i>File › Open…</i> or drop it onto this window.</div>'}
         </div>
-        <button class="btn solid" data-act="open" style="justify-content:center;height:40px">${ICON.open} Open layout (.json)…</button>
         <div class="dropzone">
           <b>Coming from the Excel generator?</b>
-          <span class="muted" style="line-height:1.5">In Excel, use <i>Save data to file</i>, then import the <span class="mono">.MLL_pgf</span> file here. All sheets and effects come across.</span>
-          <button class="btn solid" data-act="import" style="justify-content:center">Import .MLL_pgf…</button>
+          <span class="muted" style="line-height:1.5">In Excel, use <i>Save data to file</i>, then drop the <span class="mono">.MLL_pgf</span> file onto this window or choose <i>File › Import .MLL_pgf…</i> All sheets and effects come across.</span>
         </div>
         <span class="hint" style="margin-top:auto">MobaLedLib ${esc(state.catalog?.lib_version || '')} · ${state.catalog?.macros.length ?? 0} effects</span>
       </aside>
@@ -729,31 +731,11 @@ function renderModal() {
     upload: uploadHtml,
     header: headerHtml,
     settings: settingsHtml,
-    confirm: confirmHtml,
     sheet: newSheetHtml,
   }[m.type]();
   root.innerHTML = `<div class="backdrop" data-act="backdrop">${html}</div>`;
   if (m.type === 'picker') $('#picker-q')?.focus();
   if (m.type === 'upload') { const lg = $('#log'); if (lg) lg.scrollTop = lg.scrollHeight; }
-}
-
-function confirmModal(title, text, ok) {
-  return new Promise((resolve) => {
-    state.modal = { type: 'confirm', title, text, ok, resolve };
-    renderModal();
-  });
-}
-
-function confirmHtml() {
-  const m = state.modal;
-  return `
-    <div class="modal narrow" role="dialog" aria-modal="true" aria-label="${esc(m.title)}">
-      <div class="modal-head"><h2>${esc(m.title)}</h2></div>
-      <div style="padding:18px 16px;color:var(--text-2)">${esc(m.text)}</div>
-      <div class="modal-foot"><span class="grow"></span>
-        <button class="btn" data-act="confirm-no">Cancel</button>
-        <button class="btn primary" data-act="confirm-yes">${esc(m.ok)}</button></div>
-    </div>`;
 }
 
 // ----- new sheet
@@ -807,30 +789,31 @@ function selectMacro(m, def, existing) {
     }
     const v = args ? args[ai] : undefined;
     ai++;
-    if (n === 'LED' || n === 'B_LED' || n === 'InCh' || n === '') continue;
+    if (n === 'LED' || n === 'B_LED' || n === 'InCh' || n === '' || n.startsWith('#')) continue;
     const p = cat.params.get(n);
-    m.values[n] = v ?? (p?.default || (p?.kind === 'CX' ? 'C1' : ''));
+    m.values[n] = v ?? (p?.default || (p?.type === 'CX' ? 'C1' : ''));
   }
 }
 
+/** [key, label, count] per category; the label is in the chosen language. */
 function pickerCategories() {
-  const counts = new Map([['All', 0]]);
+  const cats = new Map([['All', ['All', 'All effects', 0]]]);
   for (const def of state.catalog.macros) {
-    const g = macroGroups(def)[0] || 'Other';
-    counts.set(g, (counts.get(g) || 0) + 1);
-    counts.set('All', counts.get('All') + 1);
+    const k = groupKey(def);
+    if (!cats.has(k)) cats.set(k, [k, macroGroups(def)[0] || k, 0]);
+    cats.get(k)[2]++;
+    cats.get('All')[2]++;
   }
-  return [...counts];
+  return [...cats.values()];
 }
 
 function pickerList(m) {
   const q = m.q.trim().toLowerCase();
   return state.catalog.macros.filter((def) => {
-    const g = macroGroups(def)[0] || 'Other';
-    if (m.cat !== 'All' && g !== m.cat) return false;
+    if (m.cat !== 'All' && groupKey(def) !== m.cat) return false;
     if (!q) return true;
     const t = mtext(def);
-    return [def.name, t.title, t.short, t.group, def.text.de?.title].some((s) => (s || '').toLowerCase().includes(q));
+    return [def.name, t.title, t.short, t.group, def.text.en?.title, def.text.de?.title].some((s) => (s || '').toLowerCase().includes(q));
   });
 }
 
@@ -845,15 +828,12 @@ function pickerHtml() {
         <label class="search" style="flex:1 1 auto;max-width:520px">${ICON.search}<span class="sr-only">Search effects</span>
           <input id="picker-q" type="search" placeholder="Search: house, signal, servo, Blink…" value="${esc(m.q)}"></label>
         <span class="grow" style="flex:1"></span>
-        <div class="seg" role="group" aria-label="Text language">
-          <button data-act="lang" data-v="en" aria-pressed="${state.lang === 'en'}">EN</button>
-          <button data-act="lang" data-v="de" aria-pressed="${state.lang === 'de'}">DE</button>
-        </div>
+        ${langSelect()}
         <button class="btn icon" data-act="close" aria-label="Close">✕</button>
       </div>
       <div class="modal-body">
         <nav class="picker-cats" aria-label="Categories">
-          ${pickerCategories().map(([g, n]) => `<button class="navitem" data-act="pick-cat" data-v="${esc(g)}" aria-current="${m.cat === g}"><span class="grow">${esc(g === 'All' ? 'All effects' : g)}</span><span class="count">${n}</span></button>`).join('')}
+          ${pickerCategories().map(([k, label, n]) => `<button class="navitem" data-act="pick-cat" data-v="${esc(k)}" aria-current="${m.cat === k}"><span class="grow">${esc(label)}</span><span class="count">${n}</span></button>`).join('')}
         </nav>
         <div class="picker-list" role="listbox" aria-label="Effects">
           ${list.length ? list.map((d) => {
@@ -877,16 +857,16 @@ function pickerHtml() {
 
 function pickerDetail(m, def) {
   const t = mtext(def);
-  const names = protoParams(def.prototype).filter((n) => !['LED', 'B_LED', 'InCh', '', '...'].includes(n));
+  const names = protoParams(def.prototype).filter((n) => !['LED', 'B_LED', 'InCh', '', '...'].includes(n) && !n.startsWith('#'));
   const fields = names.map((n) => {
     const p = cat.params.get(n);
     const pt = paramText(p);
     const label = pt.label && pt.label !== '=> Dialog' ? pt.label : n;
     const v = m.values[n] ?? '';
     let input;
-    if (p?.kind === 'CX') {
+    if (p?.type === 'CX') {
       input = `<select class="select" data-pv="${esc(n)}">${CX_VALUES.map((c) => `<option ${c === v ? 'selected' : ''}>${c}</option>`).join('')}</select>`;
-    } else if (p && (p.kind === 'List' || /Values:/.test(p.options))) {
+    } else if (p && (p.type === 'List' || /Values:/.test(p.options))) {
       const vals = (p.options.split(';').find((s) => s.trim().startsWith('Values:')) || '').replace(/^\s*Values:/, '').split(',').map((s) => s.trim()).filter(Boolean);
       input = `<select class="select" data-pv="${esc(n)}">${(vals.includes(v) ? vals : [v, ...vals]).map((c) => `<option ${c === v ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>`;
     } else {
@@ -1009,12 +989,8 @@ function settingsHtml() {
           <label style="display:flex;gap:10px;align-items:center"><input type="checkbox" data-set="color_test_mode" ${s.color_test_mode ? 'checked' : ''}> Allow the color test program to set LED colors (RS232)</label>
         </div>
         <div class="section"><div class="h">Effect texts</div>
-          <div class="seg" role="group" aria-label="Effect text language">
-            <button data-act="lang" data-v="en" aria-pressed="${state.lang === 'en'}">English</button>
-            <button data-act="lang" data-v="de" aria-pressed="${state.lang === 'de'}">Deutsch</button>
-            <button data-act="lang" data-v="nl" aria-pressed="${state.lang === 'nl'}">Nederlands</button>
-            <button data-act="lang" data-v="fr" aria-pressed="${state.lang === 'fr'}">Français</button>
-          </div>
+          <div>${langSelect()}</div>
+          <span class="hint">Only English and German are written by the MobaLedLib authors; the other languages are machine translations from the Excel tool.</span>
         </div>
         ${state.layout.sheets.length > 1 ? `<div class="section"><div class="h">Danger zone</div><button class="btn danger" data-act="del-sheet" style="align-self:flex-start">Delete sheet “${esc(sheet().name)}”</button></div>` : ''}
       </div>
@@ -1136,30 +1112,25 @@ async function runUpload(withUpload) {
 
 document.addEventListener('click', async (ev) => {
   const t = ev.target.closest('[data-act]');
-  if (state.menu && !ev.target.closest('.menu') && t?.dataset.act !== 'menu') {
-    state.menu = false;
-    renderTopbar();
-  }
   if (!t) return;
-  const act = t.dataset.act;
   const i = t.dataset.i != null ? Number(t.dataset.i) : -1;
-  const m = state.modal;
-  if (t.closest('.menu')) {
-    state.menu = false;
-    renderTopbar();
-  }
+  if (t.dataset.act === 'backdrop' && ev.target !== t) return;
+  await perform(t.dataset.act, t, i);
+});
 
+/** Run an action from a button (data-act) or from the native menu (menu item id). */
+async function perform(act, t = null, i = -1) {
+  const m = state.modal;
   switch (act) {
     // file
-    case 'menu': state.menu = !state.menu; renderTopbar(); break;
-    case 'new': state.menu = false; await actNew(); break;
-    case 'open': state.menu = false; await actOpen(false); break;
-    case 'import': state.menu = false; await actOpen(true); break;
-    case 'save': state.menu = false; await actSave(false); break;
-    case 'saveas': state.menu = false; await actSave(true); break;
-    case 'export': state.menu = false; renderTopbar(); await actExport(); break;
+    case 'new': await actNew(); break;
+    case 'open': await actOpen(false); break;
+    case 'import': await actOpen(true); break;
+    case 'save': await actSave(false); break;
+    case 'saveas': await actSave(true); break;
+    case 'export': await actExport(); break;
     case 'recent': await actOpenPath(t.dataset.path); break;
-    case 'settings': state.menu = false; renderTopbar(); state.modal = { type: 'settings' }; renderModal(); break;
+    case 'settings': if (state.layout) { state.modal = { type: 'settings' }; renderModal(); } break;
 
     // welcome
     case 'w-protocol': state.welcome.protocol = t.dataset.v; state.welcome.name = $('#new-name')?.value ?? ''; render(); break;
@@ -1183,28 +1154,35 @@ document.addEventListener('click', async (ev) => {
       break;
     }
     case 'del-sheet':
-      if (await confirmModal('Delete sheet?', `“${sheet().name}” and its ${rows().length} effects will be removed.`, 'Delete')) {
+      if (await dialog.ask(`“${sheet().name}” and its ${rows().length} effects will be removed.`, { title: 'Delete sheet?', kind: 'warning', okLabel: 'Delete', cancelLabel: 'Cancel' })) {
         state.layout.sheets.splice(state.sheet, 1);
         state.sheet = 0;
         state.sel = rows().length ? 0 : -1;
         render();
         changed();
-      } else {
-        state.modal = { type: 'settings' };
-        renderModal();
       }
       break;
     case 'group': state.group = t.dataset.g === '' ? null : t.dataset.g; renderSidebar(); renderMain(); break;
 
     // rows
     case 'row': if (state.sel !== i) { state.sel = i; renderMain(); renderInspector(); } break;
-    case 'toggle': ev.stopPropagation(); rows()[i].enabled = !rows()[i].enabled; changed(); break;
-    case 'add': openPicker(-1); break;
-    case 'change': openPicker(state.sel); break;
-    case 'up': moveRow(state.sel, -1); break;
-    case 'down': moveRow(state.sel, 1); break;
-    case 'dup': duplicateRow(state.sel); renderSidebar(); break;
-    case 'del': deleteRow(state.sel); renderSidebar(); break;
+    case 'toggle': rows()[i].enabled = !rows()[i].enabled; changed(); break;
+    case 'add': if (state.layout) openPicker(-1); break;
+    case 'change': if (rows()[state.sel]) openPicker(state.sel); break;
+    case 'up': if (rows()[state.sel]) moveRow(state.sel, -1); break;
+    case 'down': if (rows()[state.sel]) moveRow(state.sel, 1); break;
+    case 'dup': if (rows()[state.sel]) { duplicateRow(state.sel); renderSidebar(); } break;
+    case 'del': {
+      const r = rows()[state.sel];
+      if (!r) break;
+      const m = macroOf(r.macro_text);
+      const name = r.description || (m ? macroTitle(m) : r.macro_text.split('(')[0]) || 'this effect';
+      if (await dialog.ask(`“${name}” will be removed from the sheet.`, { title: 'Delete effect?', kind: 'warning', okLabel: 'Delete', cancelLabel: 'Cancel' })) {
+        deleteRow(state.sel);
+        renderSidebar();
+      }
+      break;
+    }
     case 'goto-error': {
       const e = state.analysis?.errors?.find((d) => d.row != null);
       if (e) { state.sel = e.row; state.group = null; renderSidebar(); renderMain(); renderInspector(); }
@@ -1217,31 +1195,19 @@ document.addEventListener('click', async (ev) => {
     case 'room-add': m.extra.push(m.extra[m.extra.length - 1] || 'ROOM_DARK'); renderModal(); break;
     case 'room-del': m.extra.splice(i, 1); renderModal(); break;
     case 'pick-apply': await pickerApply(); break;
-    case 'lang':
-      state.lang = t.dataset.v;
-      try { localStorage.setItem('mll.lang', state.lang); } catch { /* storage unavailable */ }
-      renderModal(); renderMain(); renderInspector();
-      break;
 
     // header & upload
-    case 'header': await openHeader(); break;
+    case 'header': if (state.layout) await openHeader(); break;
     case 'copy-header': await navigator.clipboard.writeText(m.text); toast('Copied'); break;
-    case 'upload': await openUpload(); break;
+    case 'upload': if (state.layout) await openUpload(); break;
     case 'up-refresh': await refreshUpload(); break;
     case 'up-compile': await runUpload(false); break;
     case 'up-run': await runUpload(true); break;
 
     // modal basics
-    case 'confirm-yes': { const r = m.resolve; closeModal(); r(true); break; }
-    case 'confirm-no': { const r = m.resolve; closeModal(); r(false); break; }
-    case 'close': if (!m?.running) closeModal(); break;
-    case 'backdrop':
-      if (ev.target === t && !m?.running) {
-        if (m.type === 'confirm') { const r = m.resolve; closeModal(); r(false); } else closeModal();
-      }
-      break;
+    case 'close': case 'backdrop': if (!m?.running) closeModal(); break;
   }
-});
+}
 
 /** Text fields of the inspector: update the row while typing. */
 function bindRow(el) {
@@ -1300,24 +1266,44 @@ document.addEventListener('change', (ev) => {
   else if (el.dataset.pv) state.modal.values[el.dataset.pv] = el.value;
   else if (el.id === 'sheet-protocol') { sheet().protocol = el.value; render(); changed(); }
   else if (el.id === 'up-port') state.modal.port = el.value;
+  else if (el.id === 'lang') {
+    state.lang = el.value;
+    try { localStorage.setItem('mll.lang', state.lang); } catch { /* storage unavailable */ }
+    renderModal(); renderMain(); renderInspector();
+  }
   else if (el.id === 'up-fqbn') { state.layout.board.fqbn = el.value; setDirty(true); renderStatus(); }
 });
 
+// Keyboard shortcuts come from the native menu (see build_menu in main.rs).
 document.addEventListener('keydown', (ev) => {
-  const mod = ev.metaKey || ev.ctrlKey;
-  if (ev.key === 'Escape') {
-    if (state.menu) { state.menu = false; renderTopbar(); return; }
-    const m = state.modal;
-    if (m && !m.running) {
-      if (m.type === 'confirm') { const r = m.resolve; closeModal(); r(false); } else closeModal();
-    }
-    return;
-  }
-  if (!mod) return;
-  const k = ev.key.toLowerCase();
-  if (k === 's' && state.layout) { ev.preventDefault(); actSave(ev.shiftKey); }
-  else if (k === 'o') { ev.preventDefault(); actOpen(false); }
-  else if (k === 'n') { ev.preventDefault(); actNew(); }
+  if (ev.key === 'Escape' && state.modal && !state.modal.running) closeModal();
+});
+
+// Native apps have no browser context menu ("Reload", "Inspect"); keep it only where text can be edited.
+// An effect row gets its own menu (Change, Duplicate, Move, Delete).
+document.addEventListener('contextmenu', (ev) => {
+  if (ev.target.closest('input, textarea, [contenteditable]')) return;
+  ev.preventDefault();
+  const row = ev.target.closest('.trow[data-act="row"]');
+  if (!row || state.modal) return;
+  const i = Number(row.dataset.i);
+  if (state.sel !== i) { state.sel = i; renderMain(); renderInspector(); }
+  invoke('effect_menu', { index: i, count: rows().length }).catch((e) => toast(errText(e), true));
+});
+
+listen('menu', (ev) => {
+  if (state.modal?.running) return;
+  perform(ev.payload);
+});
+
+listen('close-requested', async () => {
+  if (await guardUnsaved()) invoke('close_window');
+});
+
+// Dropping a layout or .MLL_pgf file onto the window opens it
+listen('tauri://drag-drop', (ev) => {
+  const path = ev.payload?.paths?.find((p) => /\.(json|mll_pgf)$/i.test(p));
+  if (path && !state.modal?.running) actOpenPath(path);
 });
 
 // ---------------------------------------------------------------- start

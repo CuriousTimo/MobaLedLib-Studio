@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>About MobaLedLib Studio</title>
+  <link rel="stylesheet" href="app.css">
+  <style>
+    .about { height: 100vh; display: flex; flex-direction: column; align-items: center; text-align: center; padding: 28px 28px 20px; }
+    .about img { width: 88px; height: 88px; }
+    .about h1 { margin: 12px 0 2px; font-size: 17px; letter-spacing: -.01em; }
+    .about .version { font-size: 12px; color: var(--muted); }
+    .about .what { margin: 14px 0 0; color: var(--text-2); line-height: 1.5; }
+    .about .by { margin-top: 14px; color: var(--muted); }
+    .about .by b { color: var(--text); font-weight: 600; }
+    .links { display: flex; gap: 8px; margin-top: 14px; }
+    .links button { height: 28px; padding: 0 11px; border-radius: 6px; border: 1px solid var(--line-2); background: var(--panel); font-size: 12px; }
+    .links button:hover { background: var(--raised); }
+    .link-error { margin-top: 8px; font-family: var(--mono); font-size: 11px; color: var(--muted); }
+    .about footer { margin-top: auto; font-size: 11px; line-height: 1.5; color: var(--dim); text-wrap: balance; }
+  </style>
+</head>
+<body>
+  <main class="about">
+    <img src="icon.png" alt="">
+    <h1>MobaLedLib Studio</h1>
+    <div class="version" id="version">&nbsp;</div>
+    <p class="what">Configure MobaLedLib effects for your model railway and upload them to the Arduino.</p>
+    <div class="by">Made by <b>CuriousTimo</b></div>
+    <div class="links">
+      <button data-url="https://github.com/CuriousTimo/MobaLedLib-Studio">GitHub</button>
+      <button data-url="https://losse-eindj.es/about-me">About me</button>
+    </div>
+    <div class="link-error selectable" id="link-error"></div>
+    <footer>Independent community project, not made or endorsed by the MobaLedLib authors.<br>LGPL-2.1-or-later</footer>
+  </main>
+  <script src="about.js"></script>
+</body>
+</html>

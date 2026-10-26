@@ -70,3 +70,25 @@ fn generate_a_small_layout() {
     // Servo2 prevents storing its state (store type 4)
     assert!(!g.header.contains("IS_PULSE"));
 }
+
+#[test]
+fn color_fields_become_separate_arguments() {
+    // Check_Par_with_ErrMsg for "RGB" / "RGB2": "0 127 0   0 0 0" => "0, 127, 0, 0, 0, 0"
+    let c = Catalog::bundled();
+    let def = c.macros.iter().find(|m| m.name == "PushButton_RGB_0_1").unwrap();
+    let v = values(&[
+        ("DstVar1", "SI_LocalVar"),
+        ("Rotate", "1"),
+        ("Use0", "0"),
+        ("ResetLong", "1"),
+        ("OptCtrPar", "0"),
+        ("Timeout", "30 Sek"),
+        ("Col0", "10 0 0"),
+        ("Col1", "0,127, 0   0 0 0"),
+    ]);
+    let f = c.fill(def, &v, &[]).unwrap();
+    assert_eq!(
+        f.macro_text,
+        "PushButton_RGB_0_1(#LED, #InCh, SI_LocalVar, 1, 0, 1, 0, 30 Sek, 10, 0, 0, 0, 127, 0, 0, 0, 0)"
+    );
+}

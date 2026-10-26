@@ -7,7 +7,7 @@
 use chrono::{NaiveDateTime, Timelike};
 use serde::Serialize;
 
-use crate::catalog::{call_args, Catalog};
+use crate::catalog::{call_args, prototype_params, Catalog};
 use crate::leds::{self, LED_CHANNELS, SERIAL_CHANNEL_PREFIX};
 use crate::model::{InputType, Layout, Protocol, Row, Sheet};
 use crate::vba::{is_numeric, pad, pad_left, val, val_i};
@@ -148,6 +148,31 @@ fn first_number_of_range(s: &str) -> Option<i64> {
 }
 
 /// Features of the Excel tool that v1 doesn't generate yet. Returns a message for the row.
+/// Effects that write to destination variables (MonoFlop, RS_FlipFlop, Counter, RandMux, PushButton…).
+/// Excel declares these variables in the header (`Add_Inp_and_DstVars`, `Print_DstVar_List`); without that
+/// the header doesn't compile. `#LocInCh` and `SI_LocalVar` need no declaration.
+fn uses_destination_variables(row: &Row, catalog: &Catalog) -> bool {
+    row.macro_text.lines().any(|line| {
+        let Some(def) = catalog.find_macro(line) else { return false };
+        if matches!(def.out_cnt.trim(), "" | "0") {
+            return false;
+        }
+        if line.trim_start().starts_with("Counter(") && line.contains("CF_ONLY_LOCALVAR") {
+            return false;
+        }
+        let params = prototype_params(&def.prototype);
+        let args = call_args(line);
+        let dst: Vec<&str> = params
+            .iter()
+            .zip(&args)
+            .filter(|(p, _)| p.starts_with("DstVar") || p.as_str() == "OutList")
+            .map(|(_, a)| a.trim())
+            .collect();
+        // No recognisable destination parameter: assume it has one
+        dst.is_empty() || dst.iter().any(|a| !a.is_empty() && !matches!(*a, "#LocInCh" | "SI_LocalVar"))
+    })
+}
+
 fn unsupported_feature(row: &Row) -> Option<String> {
     let text = &row.macro_text;
     let checks: [(&str, &str); 9] = [
@@ -466,6 +491,16 @@ impl<'a> Gen<'a> {
                 self.err(r, "The LED number must not be negative (check a previous Next_LED)");
                 return None;
             }
+            if cmd.contains("#LED") && row.leds.trim().is_empty() && !self.warnings.iter().any(|w| w.row == Some(r)) {
+                // It gets the LED number of the next effect on the bus
+                self.warnings.push(Diagnostic {
+                    row: Some(r),
+                    message: format!(
+                        "Row {}: the effect uses an LED but its LEDs field is empty; choose the effect again with Change…",
+                        r + 1
+                    ),
+                });
+            }
             cmd = cmd.replace("#LED", &led_nr.to_string());
             cmd = match addr {
                 Addr::None => cmd.replace("#InCh", "SI_1"),
@@ -621,6 +656,10 @@ impl<'a> Gen<'a> {
         }
         if let Some(msg) = unsupported_feature(row) {
             self.err(r, msg);
+            return;
+        }
+        if uses_destination_variables(row, self.catalog) {
+            self.err(r, "Effects that set variables (DstVar) are not supported by MobaLedLib Studio yet");
             return;
         }
         let address = row.address.trim().to_string();

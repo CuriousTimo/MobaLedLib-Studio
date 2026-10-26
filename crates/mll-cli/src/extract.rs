@@ -2,10 +2,12 @@
 
 use std::collections::BTreeMap;
 use std::path::Path;
+use std::sync::LazyLock;
 
 use anyhow::{anyhow, Context, Result};
 use calamine::{open_workbook_auto, Data, Range, Reader};
 use mll_core::catalog::{Catalog, MacroDef, MacroText, ParamDef, ParamText, LANGUAGES};
+use regex::{Captures, Regex};
 
 struct Sheet {
     range: Range<Data>,
@@ -31,6 +33,50 @@ impl Sheet {
     fn find_row(&self, col: usize, text: &str) -> Option<usize> {
         (0..self.rows()).find(|&r| self.get(r, col) == text)
     }
+}
+
+/// Repair the machine translated texts of the workbook. They contain URL escapes (`%28`), zero-width
+/// spaces and quote marks that went through UTF-8 → Windows-1252 once or twice, sometimes with spaces
+/// inserted and bytes lost (`Ã¢ â‚¬ Å“`, `â € œ`, `â€‹`, a lone `â`).
+fn clean_text(text: &str) -> String {
+    static RULES: LazyLock<Vec<(Regex, &str)>> = LazyLock::new(|| {
+        [
+            // „ “ ” as double mojibake
+            (r#"Ã â (\w)"#, "\"$1"),
+            (r#"Ã(?: ?¢(?: ?â)?| ?â)(?: ?‚¬)?(?: ?Å ?[“"¾])?"#, "\""),
+            // zero-width spaces as mojibake, with or without the last byte
+            (r"â ?€ ?‹|â€â€|“â€|ââ", ""),
+            // “ „ ” as single mojibake
+            (r"â ?€(?: ?[œž“])?", "\""),
+            // the extra space the translation put before () and before a closing quote
+            (r"(\w) \(\)", "$1()"),
+            (r#"\(\) ""#, "()\""),
+        ]
+        .into_iter()
+        .map(|(re, to)| (Regex::new(re).unwrap(), to))
+        .collect()
+    });
+    static LONE_A: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(\p{L})?â(\p{L})?").unwrap());
+    static LATIN1: LazyLock<Regex> = LazyLock::new(|| Regex::new("Ã([\u{80}-\u{BF}])").unwrap());
+
+    let mut s = text.replace("%28", "(").replace("%29", ")").replace("%3D", "=").replace('\u{200B}', "");
+    for (re, to) in RULES.iter() {
+        s = re.replace_all(&s, *to).into_owned();
+    }
+    // A quote that lost its last two bytes; â inside a word is real (French "câble")
+    s = LONE_A
+        .replace_all(&s, |c: &Captures| match (c.get(1), c.get(2)) {
+            (Some(_), Some(_)) => c[0].to_string(),
+            (a, b) => format!("{}\"{}", a.map_or("", |m| m.as_str()), b.map_or("", |m| m.as_str())),
+        })
+        .into_owned();
+    // A single letter as mojibake (lÃ³gicas)
+    LATIN1
+        .replace_all(&s, |c: &Captures| {
+            let byte = c[1].chars().next().unwrap() as u32;
+            char::from_u32(0xC0 + byte - 0x80).unwrap().to_string()
+        })
+        .into_owned()
 }
 
 fn sheet(wb: &mut calamine::Sheets<std::io::BufReader<std::fs::File>>, name: &str) -> Result<Sheet> {
@@ -62,10 +108,10 @@ pub fn extract(xlsm: &Path, properties: &Path) -> Result<Catalog> {
         for (i, lang) in LANGUAGES.iter().enumerate() {
             let c = 17 + i * 4;
             let t = MacroText {
-                group: lm.get(r, c),
-                title: lm.get(r, c + 1),
-                short: lm.get(r, c + 2),
-                long: lm.get(r, c + 3),
+                group: clean_text(&lm.get(r, c)),
+                title: clean_text(&lm.get(r, c + 1)),
+                short: clean_text(&lm.get(r, c + 2)),
+                long: clean_text(&lm.get(r, c + 3)),
             };
             if !(t.group.is_empty() && t.title.is_empty() && t.short.is_empty() && t.long.is_empty()) {
                 text.insert(lang.to_string(), t);
@@ -111,13 +157,13 @@ pub fn extract(xlsm: &Path, properties: &Path) -> Result<Catalog> {
         }
         let mut text = BTreeMap::new();
         // German text in columns 7/8, then one label/hint pair per language starting at 10
-        let de = ParamText { label: pd.get(r, 7), hint: pd.get(r, 8) };
+        let de = ParamText { label: clean_text(&pd.get(r, 7)), hint: clean_text(&pd.get(r, 8)) };
         if !(de.label.is_empty() && de.hint.is_empty()) {
             text.insert("de".to_string(), de);
         }
         for (i, lang) in LANGUAGES.iter().enumerate().skip(1) {
             let c = 10 + (i - 1) * 2;
-            let t = ParamText { label: pd.get(r, c), hint: pd.get(r, c + 1) };
+            let t = ParamText { label: clean_text(&pd.get(r, c)), hint: clean_text(&pd.get(r, c + 1)) };
             if !(t.label.is_empty() && t.hint.is_empty()) {
                 text.insert(lang.to_string(), t);
             }
@@ -155,4 +201,32 @@ pub fn extract(xlsm: &Path, properties: &Path) -> Result<Catalog> {
     }
 
     Ok(Catalog { lib_version: lib_version(properties)?, macros, params, platforms })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::clean_text;
+
+    #[test]
+    fn repairs_translation_garbage() {
+        let cases = [
+            (
+                "funktionen Ã¢ â‚¬ Å“New_Local_Var %28%29 Ã¢ â‚¬ og funktionen Ã¢ â‚¬ Å¾Use_GlobalVar %28%29 Ã¢ â‚¬ Å“ kræves",
+                "funktionen \"New_Local_Var()\" og funktionen \"Use_GlobalVar()\" kræves",
+            ),
+            ("función Ã ¢ â‚¬ Å “New_Local_Var %28%29 Ã ¢ â‚¬ y", "función \"New_Local_Var()\" y"),
+            ("funzione Ã â Use_GlobalVar %28%29 Ã¢ â‚¬ Å\", qui", "funzione \"Use_GlobalVar()\", qui"),
+            ("the â € œNew_Local_Var () â € function", "the \"New_Local_Var()\" function"),
+            ("Valeurs LED â€‹â€‹comme variables", "Valeurs LED comme variables"),
+            ("LED-waarden â€â€als variabelen", "LED-waarden als variabelen"),
+            ("Kopier LED-værdier ââN gange", "Kopier LED-værdier N gange"),
+            ("af \u{200B}\u{200B}de tre farver i âSrcLEDâ til", "af de tre farver i \"SrcLED\" til"),
+            ("i valori “â€da più variabili lÃ³gicas", "i valori da più variabili lógicas"),
+            ("Ks 2 %3D attesa con 5% spazio, x10 %28verde%29", "Ks 2 = attesa con 5% spazio, x10 (verde)"),
+            ("les câbles du mât", "les câbles du mât"),
+        ];
+        for (input, expected) in cases {
+            assert_eq!(clean_text(input), expected, "input: {input}");
+        }
+    }
 }

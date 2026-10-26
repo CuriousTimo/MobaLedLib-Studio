@@ -5,15 +5,17 @@ mod arduino;
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::OnceLock;
 
-use mll_core::catalog::{self, FilledMacro};
+use mll_core::catalog::FilledMacro;
 use mll_core::codegen::{self, Diagnostic, GenOptions};
 use mll_core::leds;
 use mll_core::model::{Platform, Protocol};
 use mll_core::{pgf, Catalog, Layout};
 use serde::Serialize;
-use tauri::AppHandle;
+use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
+use tauri::{AppHandle, Emitter, Manager, Runtime, Theme, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 use tauri_plugin_dialog::DialogExt;
 
 fn catalog() -> &'static Catalog {
@@ -149,7 +151,7 @@ fn generate_header(layout: Layout, sheet: usize) -> Result<String, Vec<Diagnosti
 #[tauri::command]
 fn fill_macro(name: String, values: BTreeMap<String, String>, extra: Vec<String>) -> Result<FilledMacro, String> {
     let def = catalog().macros.iter().find(|m| m.name == name).ok_or_else(|| format!("unknown macro '{name}'"))?;
-    catalog::fill_macro(def, &values, &extra).map_err(|e| e.to_string())
+    catalog().fill(def, &values, &extra).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -172,9 +174,225 @@ async fn build_and_upload(app: AppHandle, layout: Layout, sheet: usize, port: Op
         .map_err(|e| e.to_string())?
 }
 
+/// Set by the frontend; while true, closing the window asks the frontend first.
+static DIRTY: AtomicBool = AtomicBool::new(false);
+
+#[tauri::command]
+fn set_dirty(dirty: bool) {
+    DIRTY.store(dirty, Ordering::Relaxed);
+}
+
+/// Close the window after the frontend has dealt with unsaved changes.
+#[tauri::command]
+fn close_window(window: tauri::Window) -> Result<(), String> {
+    DIRTY.store(false, Ordering::Relaxed);
+    window.destroy().map_err(|e| e.to_string())
+}
+
+/// The native menu bar. Custom items are sent to the frontend as "menu" events with the item id.
+fn build_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
+    let item = |id: &str, text: &str, accel: Option<&str>| MenuItem::with_id(app, id, text, true, accel);
+    let sep = || PredefinedMenuItem::separator(app);
+    let quit = MenuItem::with_id(
+        app,
+        "quit",
+        if cfg!(target_os = "macos") { "Quit MobaLedLib Studio" } else { "Exit" },
+        true,
+        Some("CmdOrCtrl+Q"),
+    )?;
+
+    let file = Submenu::with_items(
+        app,
+        "File",
+        true,
+        &[
+            &item("new", "New Layout", Some("CmdOrCtrl+N"))?,
+            &item("open", "Open…", Some("CmdOrCtrl+O"))?,
+            &sep()?,
+            &item("save", "Save", Some("CmdOrCtrl+S"))?,
+            &item("saveas", "Save As…", Some("CmdOrCtrl+Shift+S"))?,
+            &sep()?,
+            &item("import", "Import .MLL_pgf…", Some("CmdOrCtrl+I"))?,
+            &item("export", "Export as .MLL_pgf…", Some("CmdOrCtrl+E"))?,
+            &sep()?,
+            &item("settings", "Layout Settings…", Some("CmdOrCtrl+,"))?,
+        ],
+    )?;
+    if !cfg!(target_os = "macos") {
+        file.append_items(&[&sep()?, &quit])?;
+    }
+    let edit = Submenu::with_items(
+        app,
+        "Edit",
+        true,
+        &[
+            &PredefinedMenuItem::undo(app, None)?,
+            &PredefinedMenuItem::redo(app, None)?,
+            &sep()?,
+            &PredefinedMenuItem::cut(app, None)?,
+            &PredefinedMenuItem::copy(app, None)?,
+            &PredefinedMenuItem::paste(app, None)?,
+            &PredefinedMenuItem::select_all(app, None)?,
+        ],
+    )?;
+    let effect = Submenu::with_items(
+        app,
+        "Effect",
+        true,
+        &[
+            &item("add", "Add Effect…", Some("CmdOrCtrl+Shift+N"))?,
+            &item("change", "Change Effect…", None)?,
+            &item("dup", "Duplicate", Some("CmdOrCtrl+D"))?,
+            &sep()?,
+            &item("up", "Move Up", Some("Alt+Up"))?,
+            &item("down", "Move Down", Some("Alt+Down"))?,
+            &sep()?,
+            &item("del", "Delete Effect", None)?,
+        ],
+    )?;
+    let sketch = Submenu::with_items(
+        app,
+        "Arduino",
+        true,
+        &[
+            &item("header", "Show Generated Code", Some("CmdOrCtrl+Shift+H"))?,
+            &item("upload", "Upload…", Some("CmdOrCtrl+U"))?,
+        ],
+    )?;
+    let window = Submenu::with_items(
+        app,
+        "Window",
+        true,
+        &[
+            &PredefinedMenuItem::minimize(app, None)?,
+            &PredefinedMenuItem::maximize(app, None)?,
+            &PredefinedMenuItem::fullscreen(app, None)?,
+            &sep()?,
+            &PredefinedMenuItem::close_window(app, None)?,
+        ],
+    )?;
+
+    let about = item("about", "About MobaLedLib Studio", None)?;
+    if cfg!(target_os = "macos") {
+        let app_menu = Submenu::with_items(
+            app,
+            "MobaLedLib Studio",
+            true,
+            &[
+                &about,
+                &sep()?,
+                &PredefinedMenuItem::services(app, None)?,
+                &sep()?,
+                &PredefinedMenuItem::hide(app, None)?,
+                &PredefinedMenuItem::hide_others(app, None)?,
+                &PredefinedMenuItem::show_all(app, None)?,
+                &sep()?,
+                &quit,
+            ],
+        )?;
+        Menu::with_items(app, &[&app_menu, &file, &edit, &effect, &sketch, &window])
+    } else {
+        let help = Submenu::with_items(app, "Help", true, &[&about])?;
+        Menu::with_items(app, &[&file, &edit, &effect, &sketch, &window, &help])
+    }
+}
+
+#[derive(Serialize)]
+struct AboutInfo {
+    version: &'static str,
+    lib_version: String,
+}
+
+#[tauri::command]
+fn about_info() -> AboutInfo {
+    AboutInfo { version: env!("CARGO_PKG_VERSION"), lib_version: catalog().lib_version.clone() }
+}
+
+/// Our own about window (about.html): the native about panels can't show links.
+fn show_about<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
+    if let Some(w) = app.get_webview_window("about") {
+        return w.set_focus();
+    }
+    WebviewWindowBuilder::new(app, "about", WebviewUrl::App("about.html".into()))
+        .title("About MobaLedLib Studio")
+        .inner_size(340.0, 400.0)
+        .resizable(false)
+        .minimizable(false)
+        .maximizable(false)
+        .center()
+        .theme(Some(Theme::Dark))
+        .background_color(tauri::window::Color(0x0E, 0x10, 0x14, 0xFF))
+        .build()?;
+    Ok(())
+}
+
+/// Right-click menu of an effect row. Its items use the ids of the Effect menu with a "ctx-" prefix.
+#[tauri::command]
+fn effect_menu<R: Runtime>(
+    app: AppHandle<R>,
+    window: tauri::Window<R>,
+    index: usize,
+    count: usize,
+) -> Result<(), String> {
+    let menu = (|| {
+        let item = |id: &str, text: &str, enabled: bool| MenuItem::with_id(&app, id, text, enabled, None::<&str>);
+        let sep = || PredefinedMenuItem::separator(&app);
+        Menu::with_items(
+            &app,
+            &[
+                &item("ctx-change", "Change Effect…", true)?,
+                &item("ctx-dup", "Duplicate", true)?,
+                &sep()?,
+                &item("ctx-up", "Move Up", index > 0)?,
+                &item("ctx-down", "Move Down", index + 1 < count)?,
+                &sep()?,
+                &item("ctx-del", "Delete Effect", true)?,
+            ],
+        )
+    })()
+    .map_err(|e| e.to_string())?;
+    window.popup_menu(&menu).map_err(|e| e.to_string())
+}
+
+/// Close (or quit) unless there are unsaved changes; then the frontend asks and calls `close_window`.
+fn request_close<R: Runtime>(app: &AppHandle<R>) -> bool {
+    if DIRTY.load(Ordering::Relaxed) {
+        let _ = app.emit("close-requested", ());
+        false
+    } else {
+        true
+    }
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_opener::init())
+        .menu(build_menu)
+        .on_menu_event(|app, ev| {
+            let id = ev.id().as_ref();
+            let id = id.strip_prefix("ctx-").unwrap_or(id);
+            if id == "quit" {
+                if request_close(app) {
+                    app.exit(0);
+                }
+            } else if id == "about" {
+                let _ = show_about(app);
+            } else {
+                let _ = app.emit("menu", id);
+            }
+        })
+        .on_window_event(|window, ev| {
+            if window.label() != "main" {
+                return;
+            }
+            match ev {
+                WindowEvent::CloseRequested { api, .. } if !request_close(window.app_handle()) => api.prevent_close(),
+                // Don't keep running with only the about window left
+                WindowEvent::Destroyed => window.app_handle().exit(0),
+                _ => {}
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             get_catalog,
             new_layout,
@@ -188,6 +406,10 @@ fn main() {
             arduino_status,
             list_ports,
             build_and_upload,
+            set_dirty,
+            close_window,
+            effect_menu,
+            about_info,
         ])
         .run(tauri::generate_context!())
         .expect("error while running MobaLedLib Studio");

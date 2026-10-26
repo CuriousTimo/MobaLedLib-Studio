@@ -14,3 +14,4 @@ mll-core = { path = "../mll-core" }
 serde_json.workspace = true
 anyhow.workspace = true
 calamine = "0.30"
+regex = "1"

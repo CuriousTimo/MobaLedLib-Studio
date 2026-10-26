@@ -40,7 +40,9 @@ The effect catalog in [`data/catalog.json`](data/catalog.json) (285 effects, 169
 - Import of Excel `.MLL_pgf` files (format V1.0 and V2.0, Windows-1252 or UTF-8, multi-line cells,
   input types in all 7 languages of the Excel tool)
 - Export to `.MLL_pgf` V2.0, so a layout can go back into the Excel tool
-- Recent files on the start screen, "unsaved changes" indicator, keyboard shortcuts (⌘/Ctrl + S, O, N)
+- Recent files on the start screen, "unsaved changes" indicator
+- Native menu bar with keyboard shortcuts, native dialogs, open a file by dropping it onto the window
+- Asks to save unsaved changes before closing, quitting or opening another layout
 
 **Editor**
 - Effect list with on/off switch, trigger (address and input type), effect, output and plug columns
@@ -49,7 +51,7 @@ The effect catalog in [`data/catalog.json`](data/catalog.json) (285 effects, 169
 - Expert fields for the raw macro text, LEDs, InCnt and Loc InCh
 - Move, duplicate and delete rows
 - Effect gallery with all 285 library effects, categories, search, descriptions in English, German,
-  Dutch or French
+  Dutch, French, Italian, Spanish or Danish (all but English and German are machine translations from the Excel tool)
 - Parameter forms generated from `Par_Description` (lists, `Cx` channel selection, defaults, value ranges, hints)
 - Room and light editor for `House()` and `GasLights()`
 - Servos and sound modules are shown as such, not as LEDs
@@ -84,6 +86,7 @@ Rows that use one of these features are reported as an error instead of producin
 |---|---|
 | Switches and buttons on the main board and keyboards (`SwitchA`…`SwitchD`, CD4017 keyboards) | missing |
 | Variables and return messages (`RM …`) in the address column | missing |
+| Effects that set variables (`DstVar`): MonoFlop, flip-flops, Counter, Random, RandMux, Schedule, PushButton… | missing |
 | `Mainboard_LED()` | missing |
 | Including other sheets (`include()`) | missing |
 | Multiplexer dialog and `Multiplexer…` macros | missing |
@@ -99,17 +102,19 @@ Rows that use one of these features are reported as an error instead of producin
 | Test buttons on the sheet | missing |
 | Import directly from `.xlsm` (use "Save data to file" in Excel and import the `.MLL_pgf`) | not planned |
 | User interface in other languages than English (effect texts are already translated) | missing |
-| Asking to save unsaved changes when the window is closed | missing |
 | Code-signed installers (macOS shows "unidentified developer", Windows SmartScreen warns) | missing |
 
 ### Planned
 
 1. Verify the generated header against the Excel tool with real layouts (see below), then remove "untested"
-2. Switches (`SwitchA`…`D`) and variables as addresses
+2. Switches (`SwitchA`…`D`), variables as addresses and effects that set variables (`DstVar`)
 3. Uploading the DCC/Selectrix receiver program
 4. Simulator that shows the LEDs without hardware
 5. Sound channels, multiplexer, include, DMX
 6. Translations of the user interface (German first)
+7. Arduino setup inside the app: on the first upload, download `arduino-cli` and install pinned versions of
+   MobaLedLib, FastLED and the board package into the app's own folders, so it doesn't depend on (or change)
+   the user's Arduino IDE setup
 
 ## Help wanted: testing
 
@@ -136,8 +141,12 @@ For uploading you also need:
 2. The board support and the MobaLedLib library:
    ```sh
    arduino-cli core install arduino:avr
-   arduino-cli lib install MobaLedLib
+   arduino-cli lib install MobaLedLib@3.5.0
+   arduino-cli lib install FastLED@3.9.12
    ```
+   The second `lib install` matters: installing MobaLedLib pulls in the newest FastLED, and MobaLedLib 3.5.0
+   doesn't compile with FastLED 3.10 (`using typedef-name 'using CRGB = struct fl::CRGB' after 'struct'`).
+   3.9.12 is the version the Excel Program Generator installs.
 
 ## Build from source
 
@@ -152,6 +161,9 @@ cargo run -p mll-cli -- generate layout.json
 ```
 
 Installers are built with the Tauri CLI: `cargo install tauri-cli --version "^2"`, then `cd app && cargo tauri build`.
+On macOS, `cargo tauri build --bundles app` is enough to get `target/release/bundle/macos/MobaLedLib Studio.app`.
+Start that, not the bare `target/release/mobaledlib-studio` binary: macOS opens a bare binary in Terminal, and it
+has no app icon, because the icon and the app metadata live in the `.app` bundle.
 
 ## Project layout
 
