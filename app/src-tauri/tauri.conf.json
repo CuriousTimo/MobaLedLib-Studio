@@ -41,6 +41,9 @@
       "icons/icon.png"
     ],
     "category": "Utility",
+    "macOS": {
+      "signingIdentity": "-"
+    },
     "shortDescription": "Configure MobaLedLib model railway effects",
     "copyright": "MobaLedLib Studio contributors · LGPL-2.1-or-later"
   }
