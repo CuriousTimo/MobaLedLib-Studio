@@ -131,8 +131,12 @@ The most useful contribution right now:
 Download the installer for your system from the [Releases](https://github.com/CuriousTimo/MobaLedLib-Studio/releases) page:
 
 - **Windows:** `MobaLedLib Studio_x.y.z_x64-setup.exe`
-- **macOS:** `.dmg` for Apple Silicon (`aarch64`) or Intel (`x64`). The app isn't signed yet: right-click it
-  and choose *Open* the first time.
+- **macOS:** `.dmg` for Apple Silicon (`aarch64`) or Intel (`x64`). The app is signed ad hoc, not with an
+  Apple Developer ID, so the first time macOS says it cannot check the app ("unidentified developer"). Allow it once:
+  - **macOS 15 (Sequoia) and later:** double-click the app and close the warning, then open
+    **System Settings → Privacy & Security**, scroll down and click **Open Anyway** next to
+    "MobaLedLib Studio was blocked", and confirm with your password.
+  - **macOS 14 (Sonoma) and earlier:** right-click the app and choose **Open**.
 - **Linux:** `.deb`, `.rpm` or `.AppImage`
 
 For uploading you also need:
