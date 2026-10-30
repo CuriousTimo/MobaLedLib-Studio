@@ -28,6 +28,9 @@
 }
 
 * { box-sizing: border-box; }
+/* Elements with the hidden attribute stay hidden, also when a class sets display (the
+   "Unsaved changes" chip was always visible because .chip sets display: inline-flex) */
+[hidden] { display: none !important; }
 html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font-family: var(--sans); font-size: 13px; }
 html { overscroll-behavior: none; }
 /* Behave like a desktop app, not a web page: arrow cursor, no text selection or dragging of the interface */

@@ -1316,4 +1316,16 @@ listen('tauri://drag-drop', (ev) => {
     return;
   }
   render();
+  // A file given at start ("Open with"), and a row and view for documentation screenshots
+  const opt = await invoke('startup_options');
+  if (opt.file) await actOpenPath(opt.file);
+  if (state.layout && opt.row >= 1 && opt.row <= rows().length) {
+    state.sel = opt.row - 1;
+    render();
+  }
+  if (!state.layout) return;
+  if (opt.view === 'gallery') openPicker(state.sel);
+  else if (opt.view === 'header') openHeader();
+  else if (opt.view === 'upload') openUpload();
+  else if (opt.view === 'settings') { state.modal = { type: 'settings' }; renderModal(); }
 })();

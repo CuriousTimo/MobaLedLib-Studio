@@ -77,6 +77,27 @@ fn open_layout_path(path: String) -> Result<Opened, String> {
     read_layout(Path::new(&path))
 }
 
+/// How the window starts, from the command line ("Open with", and for documentation
+/// screenshots): a layout or .MLL_pgf file to open, `--row N` to select row N (from 1) and
+/// `--view gallery|header|upload|settings` to open that view.
+#[derive(Serialize)]
+struct StartupOptions {
+    file: Option<String>,
+    row: Option<usize>,
+    view: Option<String>,
+}
+
+#[tauri::command]
+fn startup_options() -> StartupOptions {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let value = |name: &str| args.iter().position(|a| a == name).and_then(|i| args.get(i + 1)).cloned();
+    StartupOptions {
+        file: args.iter().find(|a| !a.starts_with('-') && (is_pgf(Path::new(a)) || a.ends_with(".json"))).cloned(),
+        row: value("--row").and_then(|v| v.parse().ok()),
+        view: value("--view"),
+    }
+}
+
 fn pick_save(app: &AppHandle, name: &str, label: &str, ext: &str) -> Result<Option<PathBuf>, String> {
     let file =
         app.dialog().file().add_filter(label, &[ext]).set_file_name(format!("{name}.{ext}")).blocking_save_file();
@@ -398,6 +419,7 @@ fn main() {
             new_layout,
             open_layout,
             open_layout_path,
+            startup_options,
             save_layout,
             export_pgf,
             analyze,

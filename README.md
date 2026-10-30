@@ -2,6 +2,8 @@
 
 **A cross-platform desktop app (Windows, macOS, Linux) that replaces the Excel-based Program Generator of the [MobaLedLib](https://github.com/Hardi-St/MobaLedLib).**
 
+![MobaLedLib Studio: a station with house lighting, gas lamps, signals and a level crossing](docs/screenshot.png)
+
 > [!WARNING]
 > **Beta, completely untested.** Version `0.1.0-beta.1` has not been tried on real hardware, and the
 > generated `LEDs_AutoProg.h` has not yet been compared with the output of the Excel tool. Do not rely on
@@ -14,6 +16,15 @@ MobaLedLib is an Arduino library that drives WS2811/WS2812 LEDs, servos and soun
 Until now its effects were configured in `Prog_Generator_MobaLedLib.xlsm`, which needs desktop Excel on
 Windows with macros enabled. MobaLedLib Studio does the same job as a native app written in Rust
 ([Tauri](https://tauri.app)) and stores layouts as plain JSON files.
+
+## A look inside
+
+The picture above is the example layout [`examples/Adorf station.json`](examples/Adorf%20station.json): a station with its building, gas lamps, a goods shed, two entry signals, a level crossing, an inn and a welding light, 25 LEDs in all. The selected row, the station building, is a "busy house" with five rooms; on the right are its rooms, its DCC address and its wiring, and below the table the LED bus shows where its LEDs sit.
+
+| | |
+| --- | --- |
+| ![The effect gallery](docs/effect-gallery.png) | ![The generated LEDs_AutoProg.h](docs/generated-code.png) |
+| **Effect gallery.** All 285 MobaLedLib effects by category, with a description and a form for their settings. | **Generated code.** The `LEDs_AutoProg.h` for the Arduino, as the Excel tool writes it. |
 
 ## Reference version
 
@@ -160,6 +171,8 @@ the frontend is plain HTML, CSS and JavaScript in `app/ui`.
 
 ```sh
 cargo run -p mobaledlib-studio        # start the app
+cargo run -p mobaledlib-studio -- "examples/Adorf station.json" --row 2 --view gallery
+                                      # open a file, select a row, open a view (gallery, header, upload, settings)
 cargo test --workspace                # run the tests
 cargo run -p mll-cli -- generate layout.json
 ```
