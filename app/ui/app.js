@@ -20,6 +20,7 @@ const state = {
   sheet: 0,
   sel: -1,             // selected row index
   group: null,         // filter by "Filter" column value
+  groupSel: new Map(), // group ("" = all) -> the row last selected in it
   query: '',
   analysis: null,
   modal: null,         // { type: 'picker' | 'upload' | 'header' | 'settings' | 'sheet', ... }
@@ -223,6 +224,7 @@ function loadLayout(layout, path, imported = false) {
   state.sheet = 0;
   state.sel = layout.sheets[0]?.rows.length ? 0 : -1;
   state.group = null;
+  state.groupSel.clear();
   state.query = '';
   state.analysis = null;
   setDirty(imported);
@@ -421,6 +423,21 @@ function rowVisible(r) {
   return [r.description, r.address, r.filter, r.macro_text, m ? macroTitle(m) : ''].some((s) => (s || '').toLowerCase().includes(q));
 }
 
+// Keep the selection on a row the table shows: the row last selected in this group, else the
+// first visible row, else none (an empty inspector). Issue #4.
+function keepSelVisible() {
+  const r = rows();
+  if (r[state.sel] && rowVisible(r[state.sel])) return;
+  const last = state.groupSel.get(state.group ?? '');
+  const j = last ? r.indexOf(last) : -1;
+  state.sel = j >= 0 && rowVisible(r[j]) ? j : r.findIndex((x) => rowVisible(x));
+}
+
+function rememberSel() {
+  const r = rows()[state.sel];
+  if (r && rowVisible(r)) state.groupSel.set(state.group ?? '', r);
+}
+
 function outputCell(r, m, i) {
   const kind = outputKind(r, m);
   const start = state.analysis?.led_numbers?.[i];
@@ -514,9 +531,12 @@ function busmapHtml() {
   for (let n = 0; n < shown; n++) {
     const o = owner.get(n);
     if (!o) { cells += `<div title="#${n} free"></div>`; continue; }
-    const cls = (o.kind === 'servo' ? 'servo' : o.kind === 'sound' ? 'sound' : 'led') + (o.i === state.sel ? ' sel' : '');
+    const shownRow = rowVisible(rows()[o.i]);
+    const cls = (o.kind === 'servo' ? 'servo' : o.kind === 'sound' ? 'sound' : 'led') + (o.i === state.sel ? ' sel' : '') + (shownRow ? '' : ' dim');
     const g = o.kind === 'servo' ? 'S' : o.kind === 'sound' ? '♪' : '';
-    cells += `<div class="${cls}" title="#${n} — ${esc(o.name)}" data-act="row" data-i="${o.i}">${g}</div>`;
+    cells += shownRow
+      ? `<div class="${cls}" title="#${n} — ${esc(o.name)}" data-act="row" data-i="${o.i}">${g}</div>`
+      : `<div class="${cls}" title="#${n} — ${esc(o.name)}">${g}</div>`;
   }
   return `
     <section class="busmap" aria-label="LED bus">
@@ -1138,7 +1158,7 @@ async function perform(act, t = null, i = -1) {
     case 'create': await createLayout($('#new-name').value.trim(), state.welcome.protocol, state.welcome.platform); break;
 
     // sheets & groups
-    case 'sheet': state.sheet = i; state.sel = rows().length ? 0 : -1; state.group = null; state.analysis = null; render(); analyze(); break;
+    case 'sheet': state.sheet = i; state.sel = rows().length ? 0 : -1; state.group = null; state.groupSel.clear(); state.analysis = null; render(); analyze(); break;
     case 'add-sheet': state.modal = { type: 'sheet', name: `Sheet ${state.layout.sheets.length + 1}`, protocol: sheet().protocol }; renderModal(); break;
     case 'sheet-protocol': m.name = $('#sheet-new-name').value; m.protocol = t.dataset.v; renderModal(); break;
     case 'sheet-create': {
@@ -1162,7 +1182,7 @@ async function perform(act, t = null, i = -1) {
         changed();
       }
       break;
-    case 'group': state.group = t.dataset.g === '' ? null : t.dataset.g; renderSidebar(); renderMain(); break;
+    case 'group': rememberSel(); state.group = t.dataset.g === '' ? null : t.dataset.g; keepSelVisible(); renderSidebar(); renderMain(); renderInspector(); renderDiag(); break;
 
     // rows
     case 'row': if (state.sel !== i) { state.sel = i; renderMain(); renderInspector(); } break;
@@ -1249,7 +1269,7 @@ document.addEventListener('input', (ev) => {
   const el = ev.target;
   if (el.dataset.bind) bindRow(el);
   else if (el.dataset.set && el.type !== 'checkbox' && el.tagName !== 'SELECT') bindSetting(el);
-  else if (el.id === 'query') { state.query = el.value; renderMain(); $('#query').focus(); $('#query').setSelectionRange(el.value.length, el.value.length); }
+  else if (el.id === 'query') { rememberSel(); state.query = el.value; keepSelVisible(); renderMain(); renderInspector(); renderDiag(); $('#query').focus(); $('#query').setSelectionRange(el.value.length, el.value.length); }
   else if (el.id === 'sheet-name') { sheet().name = el.value; setDirty(true); renderSidebar(); }
   else if (el.id === 'picker-q') {
     state.modal.q = el.value;

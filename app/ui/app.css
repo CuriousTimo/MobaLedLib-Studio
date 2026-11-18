@@ -137,6 +137,7 @@ button { cursor: default; }
 .cells div.servo { background: #15283A; border: 1.5px solid var(--motion); color: var(--motion); }
 .cells div.sound { background: #2A1D3A; border: 1.5px solid var(--sound); color: var(--sound); }
 .cells div.sel { outline: 2px solid var(--accent); outline-offset: 1px; }
+.cells div.dim { opacity: .25; }
 
 /* ---------- inspector ---------- */
 .inspector { width: 340px; flex: none; border-left: 1px solid var(--line); background: var(--panel); padding: 18px; display: flex; flex-direction: column; gap: 18px; overflow-y: auto; }
