@@ -6,6 +6,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.1.0-beta.2] - 2026-11-18
+
+Still untested on real hardware.
+
+### Added
+- Example layout `examples/Adorf station.json` (25 LEDs, generates without warnings) and README screenshots
+- Opening a layout or `.MLL_pgf` file given at start ("Open with"); `--row N` and `--view gallery|header|upload|settings`
+
+### Fixed
+- Changing the group or the filter now keeps the inspector and the LED bus on a row the table shows: the
+  row last selected in that group, else the first one shown; LEDs of hidden rows are dimmed on the LED bus (#4)
+- The "Unsaved changes" chip no longer shows right after opening or saving
+- README: how to open the unsigned app on macOS 15 and later
+
 ## [0.1.0-beta.1] - 2026-10-27
 
 First public beta. Untested on real hardware.
@@ -46,5 +60,6 @@ First public beta. Untested on real hardware.
 - Effects that set variables (MonoFlop, flip-flops, Counter, Random, RandMux, Schedule, PushButton…) are reported as not supported yet instead of producing a header that doesn't compile
 - Garbled characters in the machine translated effect texts (`Ã¢ â‚¬ Å“`, `â€‹`, `%28%29`, invisible zero-width spaces); `mll extract-catalog` now repairs them
 
-[Unreleased]: https://github.com/CuriousTimo/MobaLedLib-Studio/compare/v0.1.0-beta.1...HEAD
+[Unreleased]: https://github.com/CuriousTimo/MobaLedLib-Studio/compare/v0.1.0-beta.2...HEAD
+[0.1.0-beta.2]: https://github.com/CuriousTimo/MobaLedLib-Studio/releases/tag/v0.1.0-beta.2
 [0.1.0-beta.1]: https://github.com/CuriousTimo/MobaLedLib-Studio/releases/tag/v0.1.0-beta.1
