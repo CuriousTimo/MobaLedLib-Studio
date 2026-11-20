@@ -114,6 +114,9 @@ pub struct Catalog {
     /// Platform parameters: platform id ("AM328", ...) -> setting -> value
     #[serde(default)]
     pub platforms: BTreeMap<String, BTreeMap<String, String>>,
+    /// The `Languages` sheet: the translations of the texts of the Excel tool
+    #[serde(default)]
+    pub languages: crate::lang::LanguageSheet,
 }
 
 impl Catalog {

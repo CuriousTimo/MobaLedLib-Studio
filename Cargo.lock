@@ -2146,6 +2146,7 @@ dependencies = [
  "mll-core",
  "regex",
  "serde_json",
+ "zip",
 ]
 
 [[package]]
