@@ -80,7 +80,7 @@ fn open_layout_path(path: String) -> Result<Opened, String> {
 
 /// How the window starts, from the command line ("Open with", and for documentation
 /// screenshots): a layout or .MLL_pgf file to open, `--row N` to select row N (from 1) and
-/// `--view gallery|header|upload|settings` to open that view.
+/// `--view gallery|header|upload|settings|simulate` to open that view.
 #[derive(Serialize)]
 struct StartupOptions {
     file: Option<String>,

@@ -1443,4 +1443,5 @@ listen('tauri://drag-drop', (ev) => {
   else if (opt.view === 'header') openHeader();
   else if (opt.view === 'upload') openUpload();
   else if (opt.view === 'settings') { state.modal = { type: 'settings' }; renderModal(); }
+  else if (opt.view === 'simulate') openSimulate();
 })();
