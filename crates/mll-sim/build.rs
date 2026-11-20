@@ -29,8 +29,8 @@ fn main() {
 
     let target = std::env::var("TARGET").unwrap();
     if target.contains("msvc") {
-        // MSVC's cl doesn't know __attribute__((packed)) used by MobaLedLib; clang-cl does.
-        b.compiler("clang-cl").flag("/std:c++17").flag("/EHsc");
+        // Visual Studio's compiler, as the Excel tool's MobaLedLibWrapper.dll was built
+        b.flag("/std:c++17").flag("/EHsc");
     } else {
         b.flag("-std=gnu++17");
     }
