@@ -3,6 +3,7 @@
 
 pub mod catalog;
 pub mod codegen;
+pub mod gen_text;
 pub mod lang;
 pub mod leds;
 pub mod model;

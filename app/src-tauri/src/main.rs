@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::OnceLock;
 
-use mll_core::catalog::FilledMacro;
+use mll_core::catalog::{FilledMacro, LANGUAGES};
 use mll_core::codegen::{self, Diagnostic, GenOptions};
 use mll_core::leds;
 use mll_core::model::{Platform, Protocol};
@@ -141,19 +141,22 @@ struct Analysis {
     input_channels: i64,
 }
 
-fn gen_options() -> GenOptions {
-    GenOptions { lib_version: catalog().lib_version.clone(), ..GenOptions::default() }
+/// `lang`: the language of the messages, as a code of [`mll_core::catalog::LANGUAGES`] (default English).
+fn gen_options(lang: Option<&str>) -> GenOptions {
+    let language = lang.and_then(|l| LANGUAGES.iter().position(|&c| c == l)).unwrap_or(mll_core::lang::ENGLISH);
+    GenOptions { lib_version: catalog().lib_version.clone(), language, ..GenOptions::default() }
 }
 
 /// LED numbers and validation for one sheet. Called after every edit.
 #[tauri::command]
-fn analyze(layout: Layout, sheet: usize) -> Result<Analysis, String> {
+fn analyze(layout: Layout, sheet: usize, lang: Option<String>) -> Result<Analysis, String> {
     let sh = layout.sheets.get(sheet).ok_or("sheet not found")?;
     let numbers = leds::compute(sh);
-    let (errors, warnings, input_channels) = match codegen::generate(&layout, sheet, catalog(), &gen_options()) {
-        Ok(g) => (Vec::new(), g.warnings, g.input_channels),
-        Err(e) => (e.errors, Vec::new(), 0),
-    };
+    let (errors, warnings, input_channels) =
+        match codegen::generate(&layout, sheet, catalog(), &gen_options(lang.as_deref())) {
+            Ok(g) => (Vec::new(), g.warnings, g.input_channels),
+            Err(e) => (e.errors, Vec::new(), 0),
+        };
     Ok(Analysis {
         total_leds: numbers.total(),
         led_numbers: numbers.rows,
@@ -165,8 +168,8 @@ fn analyze(layout: Layout, sheet: usize) -> Result<Analysis, String> {
 }
 
 #[tauri::command]
-fn generate_header(layout: Layout, sheet: usize) -> Result<String, Vec<Diagnostic>> {
-    codegen::generate(&layout, sheet, catalog(), &gen_options()).map(|g| g.header).map_err(|e| e.errors)
+fn generate_header(layout: Layout, sheet: usize, lang: Option<String>) -> Result<String, Vec<Diagnostic>> {
+    codegen::generate(&layout, sheet, catalog(), &gen_options(lang.as_deref())).map(|g| g.header).map_err(|e| e.errors)
 }
 
 #[tauri::command]
@@ -187,8 +190,15 @@ async fn list_ports() -> Result<Vec<arduino::Port>, String> {
 
 /// Generate the header, compile and (with a port) upload. Progress arrives as "build-log" events.
 #[tauri::command]
-async fn build_and_upload(app: AppHandle, layout: Layout, sheet: usize, port: Option<String>) -> Result<(), String> {
-    let header = codegen::generate(&layout, sheet, catalog(), &gen_options()).map_err(|e| e.to_string())?.header;
+async fn build_and_upload(
+    app: AppHandle,
+    layout: Layout,
+    sheet: usize,
+    port: Option<String>,
+    lang: Option<String>,
+) -> Result<(), String> {
+    let header =
+        codegen::generate(&layout, sheet, catalog(), &gen_options(lang.as_deref())).map_err(|e| e.to_string())?.header;
     let fqbn = layout.board.fqbn.clone();
     tauri::async_runtime::spawn_blocking(move || arduino::build(&app, &header, &fqbn, port.as_deref()))
         .await
