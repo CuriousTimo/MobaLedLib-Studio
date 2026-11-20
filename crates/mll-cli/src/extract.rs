@@ -7,6 +7,7 @@ use std::sync::LazyLock;
 use anyhow::{anyhow, Context, Result};
 use calamine::{open_workbook_auto, Data, Range, Reader};
 use mll_core::catalog::{Catalog, MacroDef, MacroText, ParamDef, ParamText, LANGUAGES};
+use mll_core::lang::LanguageSheet;
 use regex::{Captures, Regex};
 
 struct Sheet {
@@ -200,12 +201,94 @@ pub fn extract(xlsm: &Path, properties: &Path) -> Result<Catalog> {
         }
     }
 
-    Ok(Catalog { lib_version: lib_version(properties)?, macros, params, platforms })
+    let languages = languages(&mut wb, xlsm)?;
+
+    Ok(Catalog { lib_version: lib_version(properties)?, macros, params, platforms, languages })
+}
+
+/// A cell text as Excel holds it in memory. calamine returns the raw XML text: the XML parser of Excel
+/// turns "\r\n" and a lone "\r" into "\n" (line end normalization), and `_xHHHH_` stands for the
+/// character HHHH (`_x000D_` = "\r").
+fn excel_text(raw: &str) -> String {
+    static ESCAPE: LazyLock<Regex> = LazyLock::new(|| Regex::new("_x([0-9A-Fa-f]{4})_").unwrap());
+    let s = raw.replace("\r\n", "\n").replace('\r', "\n");
+    ESCAPE
+        .replace_all(&s, |c: &Captures| {
+            char::from_u32(u32::from_str_radix(&c[1], 16).unwrap()).map(|ch| ch.to_string()).unwrap_or_default()
+        })
+        .into_owned()
+}
+
+/// "D13" -> (12, 3)
+fn cell_ref(r: &str) -> Option<[u32; 2]> {
+    let letters: String = r.chars().take_while(|c| c.is_ascii_uppercase()).collect();
+    let row: u32 = r[letters.len()..].parse().ok()?;
+    let col = letters.chars().fold(0u32, |acc, c| acc * 26 + (c as u32 - 'A' as u32 + 1));
+    Some([row.checked_sub(1)?, col.checked_sub(1)?])
+}
+
+/// The cells of a sheet that hold a formula, read from its XML: calamine leaves out some cells of
+/// shared formulas (`<f t="shared" .../>`).
+fn formula_cells(xlsm: &Path, sheet_name: &str) -> Result<Vec<[u32; 2]>> {
+    let mut zip = zip::ZipArchive::new(std::fs::File::open(xlsm)?)?;
+    let mut read = |name: &str| -> Result<String> {
+        let mut s = String::new();
+        std::io::Read::read_to_string(&mut zip.by_name(name)?, &mut s)?;
+        Ok(s)
+    };
+    let workbook = read("xl/workbook.xml")?;
+    let rels = read("xl/_rels/workbook.xml.rels")?;
+    let sheet_re = Regex::new(&format!(r#"<sheet [^>]*name="{}"[^>]*r:id="([^"]+)""#, regex::escape(sheet_name)))?;
+    let rid =
+        sheet_re.captures(&workbook).ok_or_else(|| anyhow!("sheet '{sheet_name}' not in workbook.xml"))?[1].to_string();
+    let rel_re = Regex::new(&format!(r#"<Relationship [^>]*Id="{}"[^>]*Target="([^"]+)""#, regex::escape(&rid)))?;
+    let target = rel_re.captures(&rels).ok_or_else(|| anyhow!("relationship {rid} not found"))?[1].to_string();
+    let path = match target.strip_prefix('/') {
+        Some(abs) => abs.to_string(),
+        None => format!("xl/{target}"),
+    };
+    let xml = read(&path)?;
+    let cell_re = Regex::new(r#"(?s)<c r="([A-Z]+[0-9]+)"[^>]*?(?:/>|>(.*?)</c>)"#)?;
+    Ok(cell_re
+        .captures_iter(&xml)
+        .filter(|c| c.get(2).is_some_and(|b| b.as_str().contains("<f")))
+        .filter_map(|c| cell_ref(&c[1]))
+        .collect())
+}
+
+/// --- Languages ---
+fn languages(wb: &mut calamine::Sheets<std::io::BufReader<std::fs::File>>, xlsm: &Path) -> Result<LanguageSheet> {
+    let sh = sheet(wb, "Languages")?;
+    let (end_r, end_c) = sh.range.end().ok_or_else(|| anyhow!("Languages: empty sheet"))?;
+    let mut rows = Vec::new();
+    for r in 0..=end_r {
+        let mut row: Vec<String> = (0..=end_c)
+            .map(|c| match sh.range.get_value((r, c)) {
+                None | Some(Data::Empty) => String::new(),
+                Some(Data::Float(f)) if f.fract() == 0.0 => format!("{}", *f as i64),
+                Some(v) => excel_text(&v.to_string()),
+            })
+            .collect();
+        while row.last().is_some_and(|s| s.is_empty()) {
+            row.pop();
+        }
+        rows.push(row);
+    }
+    Ok(LanguageSheet { rows, formulas: formula_cells(xlsm, "Languages")? })
 }
 
 #[cfg(test)]
 mod tests {
-    use super::clean_text;
+    use super::{cell_ref, clean_text, excel_text};
+
+    #[test]
+    fn cell_text_as_excel_holds_it() {
+        assert_eq!(excel_text("Valeur |\r\nde départ"), "Valeur |\nde départ");
+        assert_eq!(excel_text("Load all examples_x000D_Please be patient"), "Load all examples\rPlease be patient");
+        assert_eq!(excel_text("a\rb"), "a\nb");
+        assert_eq!(cell_ref("D13"), Some([12, 3]));
+        assert_eq!(cell_ref("AA1"), Some([0, 26]));
+    }
 
     #[test]
     fn repairs_translation_garbage() {

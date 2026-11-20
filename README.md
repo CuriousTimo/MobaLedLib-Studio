@@ -39,7 +39,7 @@ The behavior is ported from the VBA code and data sheets of:
 
 The effect catalog in [`data/catalog.json`](data/catalog.json) (285 effects, 169 parameter descriptions,
 3 platforms, texts in 7 languages) was extracted from that workbook's hidden sheets `Lib_Macros`,
-`Par_Description` and `Platform_Parameters` with `mll extract-catalog`.
+`Par_Description`, `Platform_Parameters` and `Languages` with `mll extract-catalog`.
 
 ## Features
 

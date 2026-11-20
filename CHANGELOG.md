@@ -24,6 +24,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   (valid pins of the platform, pin aliases, duplicates between the lists, SPI pins). An error in the first scan
   now stops the generation, as in Excel. The AnalogScanner library is not installed automatically. Not yet
   compared with the Excel output.
+- The catalog now holds the workbook's hidden `Languages` sheet (1093 rows, German, English, Dutch, French,
+  Italian, Spanish, Danish), and `mll-core` looks a text up there as `Get_Language_Str` does: in any cell,
+  row by row, formula cells left out, with English and then the text itself as fallback. Not used yet; the
+  generator messages and the user interface follow.
 
 ## [0.1.0-beta.2] - 2026-11-18
 
