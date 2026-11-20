@@ -61,6 +61,8 @@ fn with_test_input(c: &Catalog, mut values: BTreeMap<String, String>) -> (BTreeM
                 var_nr += 1;
                 format!("TestVar{var_nr}")
             }
+            // A pin that is an analog input and an output on the AM328 (Set_Switch?_InpLst, Set_..._Pin_Number)
+            _ if n.starts_with("Pin_") => "A0".into(),
             _ if n.contains("List") => "4".into(),
             _ => "1".into(),
         };
