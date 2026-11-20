@@ -9,7 +9,7 @@ use serde_json::Value;
 use tauri::{AppHandle, Emitter, Manager};
 
 /// `Command` for arduino-cli. On Windows it must not open a console window for every call.
-fn cli_command(cli: &Path) -> Command {
+pub(crate) fn cli_command(cli: &Path) -> Command {
     #[allow(unused_mut)]
     let mut cmd = Command::new(cli);
     #[cfg(windows)]
@@ -74,7 +74,7 @@ pub fn find_cli() -> Option<PathBuf> {
     candidates().into_iter().find(|p| p.is_file())
 }
 
-fn run_json(cli: &Path, args: &[&str]) -> Result<Value, String> {
+pub(crate) fn run_json(cli: &Path, args: &[&str]) -> Result<Value, String> {
     let out = cli_command(cli).args(args).output().map_err(|e| format!("arduino-cli: {e}"))?;
     if !out.status.success() {
         return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
@@ -89,7 +89,14 @@ fn user_dir(cli: &Path) -> Option<PathBuf> {
     dirs.get("user").and_then(|u| u.as_str()).map(PathBuf::from)
 }
 
-fn installed_sketch(cli: &Path) -> Option<PathBuf> {
+/// The Arduino data folder, which contains the installed board packages and tools (`packages/`).
+pub(crate) fn data_dir(cli: &Path) -> Option<PathBuf> {
+    let v = run_json(cli, &["config", "dump", "--format", "json"]).ok()?;
+    let dirs = v.get("config").unwrap_or(&v).get("directories")?;
+    dirs.get("data").and_then(|u| u.as_str()).map(PathBuf::from)
+}
+
+pub(crate) fn installed_sketch(cli: &Path) -> Option<PathBuf> {
     let lib = user_dir(cli)?.join("libraries");
     // The library folder is "MobaLedLib", the sketch folder is spelled "LEDs_Autoprog"
     for libname in ["MobaLedLib", "Mobaledlib", "mobaledlib"] {
