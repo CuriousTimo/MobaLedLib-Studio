@@ -48,13 +48,19 @@ fn form_defaults(c: &Catalog, def: &MacroDef) -> (BTreeMap<String, String>, Vec<
 /// Fields without a default need the user; fill them with a plausible value of their type.
 fn with_test_input(c: &Catalog, mut values: BTreeMap<String, String>) -> (BTreeMap<String, String>, bool) {
     let mut needed = false;
+    // Every variable its own name, numbered: a sequence (DstVar1..DstVarN, PushButton) needs a number at
+    // the end, and a variable set twice is a warning
+    let mut var_nr = 0;
     for (n, v) in values.iter_mut().filter(|(_, v)| v.is_empty()) {
         needed = true;
         let p = c.params.iter().find(|p| &p.name == n);
         *v = match p {
             Some(p) if !p.min.is_empty() => p.min.clone(),
             Some(p) if p.kind == "Time" => "1 Sec".into(),
-            _ if n.contains("Var") => "TestVar".into(),
+            _ if n.contains("Var") => {
+                var_nr += 1;
+                format!("TestVar{var_nr}")
+            }
             _ if n.contains("List") => "4".into(),
             _ => "1".into(),
         };

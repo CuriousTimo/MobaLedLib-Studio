@@ -11,6 +11,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   and names given with `// Define Input(Name)`, as the Excel tool checks them (`Valid_Var_Name`,
   `Add_InpVars`, `Check_Detected_Variables`); an input variable that is never set is an error. Not yet
   compared with the Excel output. Return messages (`RM …`) are still refused.
+- Effects that set variables (`DstVar`): MonoFlop, flip-flops, Counter, Random, RandMux, Schedule,
+  PushButton… The variables they set get their `#define` channels after the input channels, with
+  `START_VARIABLES`, `START_SEND_INPUTS`, `TOTAL_SEND_INPUTS` and `TOTAL_VARIABLES`, as the Excel tool
+  writes them (`Add_Inp_and_DstVars`, `Print_DstVar_List`); a variable set more than once is a warning.
+  Not yet compared with the Excel output.
 
 ## [0.1.0-beta.2] - 2026-11-18
 

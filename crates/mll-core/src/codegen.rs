@@ -7,7 +7,7 @@
 use chrono::{NaiveDateTime, Timelike};
 use serde::Serialize;
 
-use crate::catalog::{call_args, prototype_params, Catalog};
+use crate::catalog::{call_args, Catalog};
 use crate::leds::{self, LED_CHANNELS, SERIAL_CHANNEL_PREFIX};
 use crate::model::{InputType, Layout, Protocol, Row, Sheet};
 use crate::vba::{is_numeric, pad, pad_left, val, val_i};
@@ -336,29 +336,9 @@ fn first_number_of_range(s: &str) -> Option<i64> {
 }
 
 /// Features of the Excel tool that v1 doesn't generate yet. Returns a message for the row.
-/// Effects that write to destination variables (MonoFlop, RS_FlipFlop, Counter, RandMux, PushButton…).
-/// Excel declares these variables in the header (`Add_Inp_and_DstVars`, `Print_DstVar_List`); without that
-/// the header doesn't compile. `#LocInCh` and `SI_LocalVar` need no declaration.
-fn uses_destination_variables(row: &Row, catalog: &Catalog) -> bool {
-    row.macro_text.lines().any(|line| {
-        let Some(def) = catalog.find_macro(line) else { return false };
-        if matches!(def.out_cnt.trim(), "" | "0") {
-            return false;
-        }
-        if line.trim_start().starts_with("Counter(") && line.contains("CF_ONLY_LOCALVAR") {
-            return false;
-        }
-        let params = prototype_params(&def.prototype);
-        let args = call_args(line);
-        let dst: Vec<&str> = params
-            .iter()
-            .zip(&args)
-            .filter(|(p, _)| p.starts_with("DstVar") || p.as_str() == "OutList")
-            .map(|(_, a)| a.trim())
-            .collect();
-        // No recognisable destination parameter: assume it has one
-        dst.is_empty() || dst.iter().any(|a| !a.is_empty() && !matches!(*a, "#LocInCh" | "SI_LocalVar"))
-    })
+/// A row the first scan skips: it is refused when it is processed.
+fn is_refused(row: &Row) -> bool {
+    unsupported_feature(row).is_some() || expand_name(row.address.trim()).starts_with("RM ")
 }
 
 fn unsupported_feature(row: &Row) -> Option<String> {
@@ -411,8 +391,9 @@ struct Gen<'a> {
     store_values_txt: String,
     store_val_written: String,
     alias_names: String,
-    /// `DstVar_List`: the variables effects write to (step 2: still empty, those rows are refused)
+    /// `DstVar_List` / `MultiSet_DstVar_List`: the variables effects write to, and those written more than once
     dst_var_list: String,
+    multi_set_dst_var_list: String,
     /// `Undefined_Input_Var` / `Undef_Input_Var_Row`: input variables not defined when they were checked
     undefined_input_var: String,
     undef_input_var_rows: Vec<usize>,
@@ -465,6 +446,7 @@ impl<'a> Gen<'a> {
             store_val_written: String::new(),
             alias_names: String::new(),
             dst_var_list: " ".into(),
+            multi_set_dst_var_list: " ".into(),
             undefined_input_var: String::new(),
             undef_input_var_rows: Vec::new(),
             max_used_loc_in_ch: -1,
@@ -757,8 +739,120 @@ impl<'a> Gen<'a> {
         true
     }
 
-    /// `Add_Inp_and_DstVars` (M06_Write_Header_SW.bas), the input part. The destination variables come with
-    /// the effects that set variables (step 2).
+    /// `Get_Matching_Arg` (M06_Write_Header_SW.bas): the argument of `line` at the place of `dest_var_name`
+    /// in the macro's prototype; for "..." and "OutList" all arguments from there on, joined by ",".
+    /// `None` (with Excel's message) if it isn't found.
+    fn get_matching_arg(&mut self, org_macro: &str, line: &str, dest_var_name: &str, r: usize) -> Option<String> {
+        if let (Some(org_args), Some(act_args)) = (get_arguments(org_macro), get_arguments(line)) {
+            // Org_Args may end with "...": the line may have more arguments
+            if act_args.len() >= org_args.len() {
+                if let Some(i) = org_args.iter().position(|a| a == dest_var_name) {
+                    let arg = match dest_var_name {
+                        "..." | "OutList" => act_args[i..].join(","),
+                        _ => act_args[i].clone(),
+                    };
+                    return Some(expand_name(&arg));
+                }
+            }
+        }
+        self.err(r, format!("Error detecting the destination variable in macro '{line}'"));
+        None
+    }
+
+    /// `Add_Variable_to_DstVar_List` (M06_Write_Header_SW.bas): a variable set twice goes to
+    /// `MultiSet_DstVar_List`.
+    fn add_variable_to_dst_var_list(&mut self, var_name: &str) {
+        let check = format!(" {var_name} ");
+        if !self.dst_var_list.contains(&check) {
+            self.dst_var_list += &format!("{var_name} ");
+        } else if !self.multi_set_dst_var_list.contains(&check) {
+            self.multi_set_dst_var_list += &format!("{var_name} ");
+        }
+    }
+
+    /// `Add_Matching_Arg_to_DstVars` (M06_Write_Header_SW.bas). Ex.: MonoFlop(DstVar, InCh, Duration)
+    fn add_matching_arg_to_dst_vars(&mut self, org_macro: &str, line: &str, dest_var_name: &str, r: usize) -> bool {
+        match self.get_matching_arg(org_macro, line, dest_var_name, r).as_deref() {
+            None | Some("") => false,
+            // "#LocInCh": the random goto activation; "SI_LocalVar" may be used again
+            Some("#LocInCh") | Some("SI_LocalVar") => true,
+            Some(arg) => {
+                self.add_variable_to_dst_var_list(arg);
+                true
+            }
+        }
+    }
+
+    /// `Add_N2_Arg_to_DstVars` (M06_Write_Header_SW.bas). Ex.: RandMux(DstVar1, DstVarN, InCh, RandMode, ...)
+    fn add_n2_arg_to_dst_vars(&mut self, org_macro: &str, line: &str, r: usize) -> bool {
+        let arg1 = match self.get_matching_arg(org_macro, line, "DstVar1", r) {
+            Some(a) if !a.is_empty() => a,
+            _ => return false,
+        };
+        let arg_n = match self.get_matching_arg(org_macro, line, "DstVarN", r) {
+            Some(a) if !a.is_empty() => a,
+            _ => return false,
+        };
+        let (start_nr, txt_len1) = get_nr_from_var(&arg1);
+        if start_nr < 0 {
+            return false;
+        }
+        let (end_nr, txt_len_n) = get_nr_from_var(&arg_n);
+        if end_nr < 0 {
+            return false;
+        }
+        let name: String = arg1.chars().take(txt_len1).collect();
+        if txt_len1 != txt_len_n || name != arg_n.chars().take(txt_len_n).collect::<String>() {
+            return false;
+        }
+        for i in start_nr..=end_nr {
+            self.add_variable_to_dst_var_list(&format!("{name}{i}"));
+        }
+        true
+    }
+
+    /// `Add_VarArgCnt_to_DstVars` (M06_Write_Header_SW.bas). Ex.: Counter(CtrMode, InCh, Enable, TimeOut, ...)
+    fn add_var_arg_cnt_to_dst_vars(&mut self, org_macro: &str, line: &str, r: usize) -> bool {
+        // A Counter with CF_ONLY_LOCALVAR has no destination variables
+        if org_macro.starts_with("Counter(") && line.contains("CF_ONLY_LOCALVAR") {
+            return true;
+        }
+        match self.get_matching_arg(org_macro, line, "OutList", r) {
+            Some(arg) if !arg.is_empty() => {
+                for name in arg.split(',') {
+                    self.add_variable_to_dst_var_list(name);
+                }
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// `Add_Cx_to_DstVars` (M06_Write_Header_SW.bas). Ex.: PushButton_w_LED_0_2(B_LED, B_LED_Cx, InCh, DstVar1, ...)
+    fn add_cx_to_dst_vars(&mut self, org_macro: &str, line: &str, cnt: i64, r: usize) -> bool {
+        let arg1 = match self.get_matching_arg(org_macro, line, "DstVar1", r) {
+            Some(a) if !a.is_empty() => a,
+            _ => return false,
+        };
+        let (start_nr, txt_len) = get_nr_from_var(&arg1);
+        if start_nr < 0 {
+            self.err(
+                r,
+                format!(
+                    "The destination variable '{arg1}' must end with a number because it is part of a sequence. Example: {arg1}0"
+                ),
+            );
+            return false;
+        }
+        let name: String = arg1.chars().take(txt_len).collect();
+        for i in start_nr..start_nr + cnt {
+            self.add_variable_to_dst_var_list(&format!("{name}{i}"));
+        }
+        true
+    }
+
+    /// `Add_Inp_and_DstVars` (M06_Write_Header_SW.bas): check the input variables of an effect line and
+    /// note the variables it sets.
     fn add_inp_and_dst_vars(&mut self, line: &str, r: usize) -> bool {
         if !line.contains('(') {
             return true;
@@ -768,17 +862,45 @@ impl<'a> Gen<'a> {
             return true;
         }
         let search = if parts[0] == "HouseT" { "House" } else { parts[0] };
+        // A macro that isn't in Lib_Macros (an own one): its destination variables can't be detected
         let Some(def) = self.find_macro_in_lib(&format!("{search}(")) else { return true };
-        self.add_inp_vars(parts[0], def, line, r)
+        if !self.add_inp_vars(parts[0], def, line, r) {
+            return false;
+        }
+        let org_macro = def.prototype.as_str();
+        let out_cnt = def.out_cnt.as_str();
+        let res = match out_cnt {
+            "" | "0" => return true,
+            "1" => self.add_matching_arg_to_dst_vars(org_macro, line, "DstVar", r),
+            "2" => {
+                self.add_matching_arg_to_dst_vars(org_macro, line, "DstVar1", r)
+                    && self.add_matching_arg_to_dst_vars(org_macro, line, "DstVar2", r)
+            }
+            "n.." => self.add_var_arg_cnt_to_dst_vars(org_macro, line, r),
+            "n2" => self.add_n2_arg_to_dst_vars(org_macro, line, r),
+            _ => match out_cnt.strip_prefix('C') {
+                // "C" followed by a non number: Res stays False
+                Some(n) => is_numeric(n) && self.add_cx_to_dst_vars(org_macro, line, val_i(n), r),
+                None => {
+                    self.err(r, format!("Internal error: undefined OutCnt entry '{out_cnt}' of macro '{}'", def.name));
+                    return false;
+                }
+            },
+        };
+        if !res {
+            self.err(r, format!("Error in the definition of the destination variable(s): '{line}'"));
+        }
+        res
     }
 
     /// `First_Scan_of_Data_Rows` (M06_Write_Header_SW.bas), the variable part: before the rows are
-    /// processed, the input variables of every effect line are checked. Rows that are refused as not
+    /// processed, the input variables of every effect line are checked and the variables it sets are noted.
+    /// Rows that are refused as not
     /// supported yet are skipped: they don't reach the header.
     fn first_scan(&mut self) {
         let sheet = self.sheet;
         for (r, row) in sheet.rows.iter().enumerate() {
-            if !row.enabled || unsupported_feature(row).is_some() || uses_destination_variables(row, self.catalog) {
+            if !row.enabled || is_refused(row) {
                 continue;
             }
             for line in row.macro_text.split('\n') {
@@ -786,6 +908,16 @@ impl<'a> Gen<'a> {
                     break;
                 }
             }
+        }
+        // Init_HeaderFile_Generation_SW asks whether to cancel; the header can still be written
+        if self.multi_set_dst_var_list != " " {
+            self.warnings.push(Diagnostic {
+                row: None,
+                message: format!(
+                    "The following destination variables are set more than once: {}",
+                    self.multi_set_dst_var_list.trim()
+                ),
+            });
         }
     }
 
@@ -1118,11 +1250,6 @@ impl<'a> Gen<'a> {
             self.err(r, msg);
             return;
         }
-        if uses_destination_variables(row, self.catalog) {
-            self.refused_rows = true;
-            self.err(r, "Effects that set variables (DstVar) are not supported by MobaLedLib Studio yet");
-            return;
-        }
         let address = row.address.trim().to_string();
         let mut addr = Addr::None;
         if address.chars().next().is_some_and(|c| c.is_ascii_digit()) {
@@ -1177,17 +1304,55 @@ impl<'a> Gen<'a> {
     }
 
     fn write_switches_part_a(&mut self, out: &mut String) {
-        // No switches are used in v1: only the totals and the FastLED setup are written
+        // Switches are not supported yet: the output variables, the totals and the FastLED setup are written
         let p = |out: &mut String, s: &str| {
             out.push_str(s);
             out.push_str(NL)
         };
+        let dst_vars: Vec<String> = self.dst_var_list.split_whitespace().map(|s| s.to_string()).collect();
+        // Min_Channel: the first channel of the switches and variables
+        let min_channel = (!dst_vars.is_empty()).then_some(self.channel);
+        if !dst_vars.is_empty() {
+            // #defines for the output variables (Print_DstVar_List)
+            p(out, "//*** Output Channels ***");
+            p(
+                out,
+                &format!(
+                    "#define START_VARIABLES   {}// Define the start number for the variables.",
+                    pad(&self.channel.to_string(), 41)
+                ),
+            );
+            for var in &dst_vars {
+                p(out, &format!("#define {}  {}", pad(var, 22), self.channel));
+                self.channel += 1;
+            }
+            p(out, "");
+        }
         p(out, "");
+        if let Some(min) = min_channel {
+            p(
+                out,
+                &format!(
+                    "#define START_SEND_INPUTS {}// Start address of all switches/variables",
+                    pad(&min.to_string(), 41)
+                ),
+            );
+            p(
+                out,
+                &format!(
+                    "#define TOTAL_SEND_INPUTS {}// Number of used switches/variables",
+                    pad(&dst_vars.len().to_string(), 41)
+                ),
+            );
+        }
         p(out, &format!("#define TOTAL_SWITCHES_A  {}// Number of used inputs for analog keyboard", pad("0", 41)));
         p(out, &format!("#define TOTAL_SWITCHES_B  {}// Number of used inputs for keyboard 1", pad("0", 41)));
         p(out, &format!("#define TOTAL_SWITCHES_C  {}// Number of used inputs for keyboard 2", pad("0", 41)));
         p(out, &format!("#define TOTAL_SWITCHES_D  {}// Number of used inputs for main board switches", pad("0", 41)));
-        p(out, &format!("#define TOTAL_VARIABLES   {}// Number of used variables", pad("0", 41)));
+        p(
+            out,
+            &format!("#define TOTAL_VARIABLES   {}// Number of used variables", pad(&dst_vars.len().to_string(), 41)),
+        );
 
         let platform = self.layout.board.platform.id();
         let pins = vba_split_space(self.catalog.platform(platform, "LED_Pins").unwrap_or(" 6 "));
@@ -1824,11 +1989,120 @@ mod tests {
 
     #[test]
     fn refused_rows_skip_the_undefined_check() {
-        // The variable may be set by the refused DstVar row: no misleading "never set"
+        // The variable may be set by the refused LED_to_Var row: no misleading "never set"
         let e =
-            gen(vec![row("", "MonoFlop(Door, SI_1, 1 Sec)"), row("Door", "Blink(#LED, #InCh, 1 Sec)")]).unwrap_err();
+            gen(vec![row("", "LED_to_Var(Door, 0, 0, >, 10)"), row("Door", "Blink(#LED, #InCh, 1 Sec)")]).unwrap_err();
         assert_eq!(e.errors.len(), 1, "{:?}", e.errors);
-        assert!(e.errors[0].message.contains("DstVar"));
+        assert!(e.errors[0].message.contains("LED_to_Var"));
+    }
+
+    // ---- Destination variables (M06_Write_Header_SW.bas: Get_Matching_Arg, Add_*_to_DstVars, Print_DstVar_List)
+
+    fn dst_vars(lines: &[&str]) -> (String, String, Vec<Diagnostic>) {
+        let l = layout(vec![]);
+        let cat = Catalog::bundled();
+        let mut g = Gen::new(&l, &l.sheets[0], &cat);
+        for line in lines {
+            g.add_inp_and_dst_vars(line, 0);
+        }
+        (g.dst_var_list.clone(), g.multi_set_dst_var_list.clone(), g.errors.clone())
+    }
+
+    #[test]
+    fn get_matching_arg_like_vba() {
+        // Test_Get_Matching_Arg
+        let l = layout(vec![]);
+        let cat = Catalog::bundled();
+        let mut g = Gen::new(&l, &l.sheets[0], &cat);
+        let random = "Random(        DstVar, InCh, RandMode, MinTime, MaxTime, MinOn, MaxOn)";
+        assert_eq!(g.get_matching_arg(random, "Random( OutA, 1, 2, 3, 4, 5, 6)", "DstVar", 0).as_deref(), Some("OutA"));
+        let counter = "Counter(       CtrMode, InCh, Enable, TimeOut, ...)";
+        let line = "Counter(12, #InCh, Enable, TimeOut, OutA, OutB, OutB)";
+        assert_eq!(g.get_matching_arg(counter, line, "...", 0).as_deref(), Some("OutA,OutB,OutB"));
+        let randmux = "RandMux(       DstVar1, DstVarN, InCh, RandMode, MinTime, MaxTime)";
+        let line = "RandMux( Out1, Out10, InCh, RandMode, MinTime, MaxTime)";
+        assert_eq!(g.get_matching_arg(randmux, line, "DstVarN", 0).as_deref(), Some("Out10"));
+        // Fewer arguments than the prototype: Excel's message
+        assert_eq!(g.get_matching_arg(random, "Random( OutA, 1)", "DstVar", 0), None);
+        assert!(g.errors[0].message.contains("Error detecting the destination variable"));
+    }
+
+    #[test]
+    fn dst_var_out_cnt_1_and_2() {
+        let (list, multi, errors) = dst_vars(&["MonoFlop(Door, SI_1, 1 Sec)", "RS_FlipFlop2(Up, Down, SI_1, SI_1)"]);
+        assert!(errors.is_empty(), "{errors:?}");
+        assert_eq!(list, " Door Up Down ");
+        assert_eq!(multi, " ");
+    }
+
+    #[test]
+    fn dst_var_loc_in_ch_and_si_local_var_are_not_added() {
+        let (list, _, errors) = dst_vars(&["MonoFlop(#LocInCh, SI_1, 1 Sec)", "MonoFlop(SI_LocalVar, SI_1, 1 Sec)"]);
+        assert!(errors.is_empty(), "{errors:?}");
+        assert_eq!(list, " ");
+    }
+
+    #[test]
+    fn dst_var_counter_out_list() {
+        let (list, multi, errors) = dst_vars(&["Counter(CF_ROTATE, SI_1, SI_1, 0, A1, A2, A3)"]);
+        assert!(errors.is_empty(), "{errors:?}");
+        assert_eq!(list, " A1 A2 A3 ");
+        assert_eq!(multi, " ");
+        // With CF_ONLY_LOCALVAR there are no destination variables
+        let (list, _, errors) = dst_vars(&["Counter(CF_ONLY_LOCALVAR, SI_1, SI_1, 0, 5)"]);
+        assert!(errors.is_empty(), "{errors:?}");
+        assert_eq!(list, " ");
+    }
+
+    #[test]
+    fn dst_var_randmux_n2() {
+        let (list, _, errors) = dst_vars(&["RandMux(Out1, Out3, SI_1, RM_NORMAL, 1 Sec, 2 Sec)"]);
+        assert!(errors.is_empty(), "{errors:?}");
+        assert_eq!(list, " Out1 Out2 Out3 ");
+        // Different names: Res stays False
+        let (_, _, errors) = dst_vars(&["RandMux(Out1, Led3, SI_1, RM_NORMAL, 1 Sec, 2 Sec)"]);
+        assert!(errors[0].message.contains("Error in the definition of the destination variable(s)"), "{errors:?}");
+    }
+
+    #[test]
+    fn dst_var_push_button_cx() {
+        // PushButton_w_LED_BL_0_2: OutCnt C3
+        let line = "PushButton_w_LED_BL_0_2(#LED, C1, SI_1, Btn0, 1, 0, 0, 0, 1 Min, 255, 20)";
+        let (list, _, errors) = dst_vars(&[line]);
+        assert!(errors.is_empty(), "{errors:?}");
+        assert_eq!(list, " Btn0 Btn1 Btn2 ");
+        // A name without a number at the end
+        let line = "PushButton_w_LED_BL_0_2(#LED, C1, SI_1, Btn, 1, 0, 0, 0, 1 Min, 255, 20)";
+        let (_, _, errors) = dst_vars(&[line]);
+        assert!(errors[0].message.contains("'Btn' must end with a number"), "{errors:?}");
+    }
+
+    #[test]
+    fn dst_var_set_twice_is_a_warning() {
+        let g = gen(vec![row("", "MonoFlop(Door, SI_1, 1 Sec)"), row("", "MonoFlop(Door, SI_1, 2 Sec)")]).unwrap();
+        assert!(g.warnings.iter().any(|w| w.message.contains("set more than once: Door")), "{:?}", g.warnings);
+    }
+
+    #[test]
+    fn dst_vars_in_the_header() {
+        let g = gen(vec![
+            row("", "RS_FlipFlop2(Up, Down, SI_1, SI_1)"),
+            row("Up", "Blink(#LED, #InCh, 1 Sec)"),
+            row("Down", "Blink(#LED, #InCh, 1 Sec)"),
+        ])
+        .unwrap();
+        let h = &g.header;
+        assert!(h.contains("//*** Output Channels ***\r\n"));
+        let start = h.find("#define START_VARIABLES").unwrap();
+        let vars = &h[start..];
+        let up = vars.find("#define Up                      ").unwrap();
+        let down = vars.find("#define Down                    ").unwrap();
+        assert!(up < down);
+        assert!(h.contains("#define TOTAL_SEND_INPUTS 2 "));
+        assert!(h.contains("#define TOTAL_VARIABLES   2 "));
+        // The rows with the variable as address use its #define name as input channel
+        assert!(h.contains("  Blink(2, Up, 1 Sec)"));
+        assert!(h.contains("  Blink(3, Down, 1 Sec)"));
     }
 
     #[test]
