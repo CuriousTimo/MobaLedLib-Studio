@@ -753,7 +753,9 @@ function renderModal() {
     settings: settingsHtml,
     sheet: newSheetHtml,
   }[m.type]();
+  const kept = m.type === 'picker' ? pickerScroll(m) : null;
   root.innerHTML = `<div class="backdrop" data-act="backdrop">${html}</div>`;
+  if (kept) kept();
   if (m.type === 'picker') $('#picker-q')?.focus();
   if (m.type === 'upload') { const lg = $('#log'); if (lg) lg.scrollTop = lg.scrollHeight; }
 }
@@ -835,6 +837,29 @@ function pickerList(m) {
     const t = mtext(def);
     return [def.name, t.title, t.short, t.group, def.text.en?.title, def.text.de?.title].some((s) => (s || '').toLowerCase().includes(q));
   });
+}
+
+// renderModal rebuilds the picker on every click, which would put its panes back at the top (#5).
+// Before the rebuild, note where each pane is scrolled; the returned function puts back the panes that
+// still show the same thing: the categories always, the effect list while search and category are the
+// same, the detail pane while the same effect is selected.
+function pickerScroll(m) {
+  const panes = [
+    ['.picker-cats', ''],
+    ['.picker-list', `${m.q}\n${m.cat}`],
+    ['.picker-detail', m.sel ?? ''],
+  ].map(([sel, view]) => {
+    const el = $(sel);
+    return { sel, view, top: el && el.dataset.view === view ? el.scrollTop : 0 };
+  });
+  return () => {
+    for (const p of panes) {
+      const el = $(p.sel);
+      if (!el) continue;
+      el.dataset.view = p.view;
+      el.scrollTop = p.top;
+    }
+  };
 }
 
 function pickerHtml() {
