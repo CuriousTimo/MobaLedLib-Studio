@@ -5,7 +5,7 @@
 ![MobaLedLib Studio: a station with house lighting, gas lamps, signals and a level crossing](docs/screenshot.png)
 
 > [!WARNING]
-> **Beta, completely untested.** Version `0.1.0-beta.1` has not been tried on real hardware, and the
+> **Beta, completely untested.** Version `0.1.0-beta.3` has not been tried on real hardware, and the
 > generated `LEDs_AutoProg.h` has not yet been compared with the output of the Excel tool. Do not rely on
 > it for your layout yet. Test reports are very welcome (see [Help wanted](#help-wanted-testing)).
 
@@ -43,7 +43,7 @@ The effect catalog in [`data/catalog.json`](data/catalog.json) (285 effects, 169
 
 ## Features
 
-### Implemented in 0.1.0-beta.1
+### Implemented in 0.1.0-beta.3
 
 **Layouts and files**
 - Layouts saved as readable JSON (`*.json`), with a format id and version for future migrations
@@ -83,6 +83,13 @@ The effect catalog in [`data/catalog.json`](data/catalog.json) (285 effects, 169
 - Live validation: problems are shown on the row they belong to
 - View and copy the generated header
 
+**Simulator** (*Arduino › Simulate…*)
+- Shows the LEDs of a sheet without an Arduino: they run in MobaLedLib 3.5.0's own engine, compiled into the app
+- The configuration is compiled as the Excel tool's simulator does it (the Arduino AVR compiler of `arduino-cli`
+  with `CONFIG_ONLY`), so it needs `arduino-cli`, the AVR boards and the library bundle
+- An on/off switch for every input of the sheet
+- Not yet compared with the Excel simulator; `LED_to_Var()` is not simulated
+
 **Build and upload**
 - Compile and upload with the official `arduino-cli` (found automatically, including the copy inside Arduino IDE 2)
 - Serial port detection, board presets (Nano, Nano with old bootloader, Uno, ESP32, Pico)
@@ -112,7 +119,6 @@ Rows that use one of these features are reported as an error instead of producin
 | ESP32 extensions (`EX.…` macros) | missing |
 | Color table dialog (`Set_ColTab`) and the Pattern Configurator | missing |
 | Uploading the DCC / Selectrix / LocoNet receiver program to the second Arduino | missing |
-| LED simulator | missing |
 | Test buttons on the sheet | missing |
 | Import directly from `.xlsm` (use "Save data to file" in Excel and import the `.MLL_pgf`) | not planned |
 | User interface in other languages than English: effect texts, generator messages and the texts the Excel tool shows too (column headers, `Config` page, some buttons) are translated; the rest of the app is English ([docs/translations.md](docs/translations.md)) | partly |
@@ -121,12 +127,10 @@ Rows that use one of these features are reported as an error instead of producin
 ### Planned
 
 1. Verify the generated header against the Excel tool with real layouts (see below), then remove "untested"
-2. Switches (`SwitchA`…`D`), variables as addresses and effects that set variables (`DstVar`) (done, not released yet)
-3. Uploading the DCC/Selectrix receiver program
-4. Simulator that shows the LEDs without hardware
-5. Sound channels, multiplexer, include, DMX
-6. Translations of the user interface (German first)
-7. Arduino setup inside the app: on the first upload, download `arduino-cli` and install pinned versions of
+2. Uploading the DCC/Selectrix receiver program
+3. Sound channels, multiplexer, include, DMX
+4. Translations of the user interface (German first)
+5. Arduino setup inside the app: on the first upload, download `arduino-cli` and install pinned versions of
    MobaLedLib, FastLED and the board package into the app's own folders, so it doesn't depend on (or change)
    the user's Arduino IDE setup
 
@@ -177,7 +181,7 @@ The simulator compiles MobaLedLib and FastLED from git submodules; clone with `-
 ```sh
 cargo run -p mobaledlib-studio        # start the app
 cargo run -p mobaledlib-studio -- "examples/Adorf station.json" --row 2 --view gallery
-                                      # open a file, select a row, open a view (gallery, header, upload, settings)
+                                      # open a file, select a row, open a view (gallery, header, upload, settings, simulate)
 cargo test --workspace                # run the tests
 cargo run -p mll-cli -- generate layout.json
 ```
