@@ -96,7 +96,7 @@ Rows that use one of these features are reported as an error instead of producin
 | Feature of the Excel tool | Status |
 |---|---|
 | Switches and buttons on the main board and keyboards (`SwitchA`…`SwitchD`, CD4017 keyboards) | missing |
-| Variables and return messages (`RM …`) in the address column | missing |
+| Return messages (`RM …`) in the address column (variables as address are supported) | missing |
 | Effects that set variables (`DstVar`): MonoFlop, flip-flops, Counter, Random, RandMux, Schedule, PushButton… | missing |
 | `Mainboard_LED()` | missing |
 | Including other sheets (`include()`) | missing |

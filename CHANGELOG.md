@@ -6,6 +6,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+### Added
+- Variables as address: standard inputs (`SI_1`, `SI_0`, …), the generated `INCH_…` defines, `LOC_INCH<n>`
+  and names given with `// Define Input(Name)`, as the Excel tool checks them (`Valid_Var_Name`,
+  `Add_InpVars`, `Check_Detected_Variables`); an input variable that is never set is an error. Not yet
+  compared with the Excel output. Return messages (`RM …`) are still refused.
+
 ## [0.1.0-beta.2] - 2026-11-18
 
 Still untested on real hardware.

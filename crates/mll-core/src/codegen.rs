@@ -127,6 +127,194 @@ fn vba_split_space(s: &str) -> Vec<String> {
     s.split(' ').map(|x| x.to_string()).collect()
 }
 
+/// `ExpandName` (M06_Write_Header.bas): "$Name" becomes "I<includeCount>_Name". Without `include()`
+/// (not supported yet) the include count is always 0.
+fn expand_name(name: &str) -> String {
+    match name.strip_prefix('$') {
+        Some(rest) => format!("I0_{rest}"),
+        None => name.to_string(),
+    }
+}
+
+/// `Is_in_Nr_String` (M06_Write_Header_SW.bas): does `name` start with `expected` (each trailing "?" skips
+/// one character) followed by a number? Returns 1 and the number if it is in `min..=max`, -1 if the number is
+/// out of range, 0 if it doesn't match (no number, a leading 0, or one of "-+.,eE" in it).
+fn is_in_nr_string(name: &str, expected: &str, min: i64, max: i64) -> (i64, i64) {
+    let skip = expected.chars().rev().take_while(|&c| c == '?').count();
+    let expected = &expected[..expected.len() - skip];
+    if !name.starts_with(expected) {
+        return (0, 0);
+    }
+    let nr_str: String = name.chars().skip(expected.chars().count() + skip).collect();
+    if !is_numeric(&nr_str) || nr_str.starts_with('0') || nr_str.contains(['-', '+', '.', ',', 'e', 'E']) {
+        return (0, 0);
+    }
+    let nr = val(&nr_str) as i64;
+    (if (min..=max).contains(&nr) { 1 } else { -1 }, nr)
+}
+
+/// `Get_Arguments` (M06_Write_Header_SW.bas): the trimmed, comma separated arguments between the first
+/// "(" and the last ")" after it. `None` where VBA shows "Opening/Closing bracket not found".
+fn get_arguments(line: &str) -> Option<Vec<String>> {
+    let arguments = line.split('(').nth(1)?;
+    let p = arguments.rfind(')')?;
+    Some(arguments[..p].split(',').map(|s| s.trim().to_string()).collect())
+}
+
+/// `SplitEx(s, True, "OR", "AND", "NOT")` (M30_Tools.bas): doubled delimiters are reduced first, then the
+/// text is split at every delimiter. Like VBA's `Replace` this is case sensitive and also splits inside
+/// names ("DOOR" -> "DO", "").
+fn split_logic(s: &str) -> Vec<String> {
+    if s.is_empty() {
+        return Vec::new();
+    }
+    let delims = ["OR", "AND", "NOT"];
+    let mut s = s.to_string();
+    for d in delims {
+        let dd = format!("{d}{d}");
+        // InStr(..., vbTextCompare) finds the doubled delimiter in any case, Replace only the exact case
+        while s.to_lowercase().contains(&dd.to_lowercase()) {
+            let next = s.replace(&dd, d);
+            if next == s {
+                break;
+            }
+            s = next;
+        }
+    }
+    for d in delims {
+        s = s.replace(d, "\u{1}");
+    }
+    s.split('\u{1}').map(|x| x.to_string()).collect()
+}
+
+/// `SplitMultiDelims` (M30_Tools.bas): split at any of `delims`, several delimiters in a row count as one,
+/// leading ones are skipped.
+fn split_multi_delims(text: &str, delims: &str) -> Vec<String> {
+    text.split(|c| delims.contains(c)).filter(|s| !s.is_empty()).map(|s| s.to_string()).collect()
+}
+
+/// `Get_Nr_From_Var` (M06_Write_Header_SW.bas, the active `#If 1` version): the number at the end of a
+/// name and the length of the text before it. -1 if the name is only a number or empty.
+fn get_nr_from_var(name: &str) -> (i64, usize) {
+    let chars: Vec<char> = name.chars().collect();
+    let mut p = chars.len();
+    while p > 0 && chars[p - 1].is_ascii_digit() {
+        p -= 1;
+    }
+    if p == 0 {
+        return (-1, 0);
+    }
+    let tail: String = chars[p..].iter().collect();
+    // IsNumeric("") is False: a name without a number at the end gives -2
+    if is_numeric(&tail) {
+        (val(&tail) as i64, p)
+    } else {
+        (-2, p)
+    }
+}
+
+/// `Get_Bin_Inputs` (M06_Write_Header_SW.bas): inputs needed for `dec_cnt` binary states, -1 if invalid.
+fn get_bin_inputs(dec_cnt: i64) -> i64 {
+    match dec_cnt {
+        i64::MIN..=0 => -1,
+        1 => 1,
+        2..=3 => 2,
+        4..=7 => 3,
+        8..=15 => 4,
+        16..=31 => 5,
+        32..=63 => 6,
+        _ => -1,
+    }
+}
+
+/// Excel's `Evaluate()` as `Get_InCh_Number_w_Err_Msg` uses it on a `Logic()` argument whose "#InCh" was
+/// replaced by 0: a constant expression with numbers, + - * / and brackets. `None` where Excel's
+/// `Evaluate` gives an error (a name or anything else).
+fn evaluate_constant(expr: &str) -> Option<f64> {
+    struct P<'a> {
+        s: &'a [u8],
+        i: usize,
+    }
+    impl P<'_> {
+        fn ws(&mut self) {
+            while self.i < self.s.len() && self.s[self.i] == b' ' {
+                self.i += 1;
+            }
+        }
+        fn expr(&mut self) -> Option<f64> {
+            let mut v = self.term()?;
+            loop {
+                self.ws();
+                match self.s.get(self.i) {
+                    Some(b'+') => {
+                        self.i += 1;
+                        v += self.term()?
+                    }
+                    Some(b'-') => {
+                        self.i += 1;
+                        v -= self.term()?
+                    }
+                    _ => return Some(v),
+                }
+            }
+        }
+        fn term(&mut self) -> Option<f64> {
+            let mut v = self.factor()?;
+            loop {
+                self.ws();
+                match self.s.get(self.i) {
+                    Some(b'*') => {
+                        self.i += 1;
+                        v *= self.factor()?
+                    }
+                    Some(b'/') => {
+                        self.i += 1;
+                        let d = self.factor()?;
+                        if d == 0.0 {
+                            return None;
+                        }
+                        v /= d
+                    }
+                    _ => return Some(v),
+                }
+            }
+        }
+        fn factor(&mut self) -> Option<f64> {
+            self.ws();
+            match self.s.get(self.i)? {
+                b'-' => {
+                    self.i += 1;
+                    Some(-self.factor()?)
+                }
+                b'+' => {
+                    self.i += 1;
+                    self.factor()
+                }
+                b'(' => {
+                    self.i += 1;
+                    let v = self.expr()?;
+                    self.ws();
+                    (self.s.get(self.i) == Some(&b')')).then(|| {
+                        self.i += 1;
+                        v
+                    })
+                }
+                _ => {
+                    let start = self.i;
+                    while self.i < self.s.len() && (self.s[self.i].is_ascii_digit() || self.s[self.i] == b'.') {
+                        self.i += 1;
+                    }
+                    std::str::from_utf8(&self.s[start..self.i]).ok()?.parse().ok()
+                }
+            }
+        }
+    }
+    let mut p = P { s: expr.as_bytes(), i: 0 };
+    let v = p.expr()?;
+    p.ws();
+    (p.i == p.s.len()).then_some(v)
+}
+
 /// `Get_First_Number_of_Range`: "12" -> 12, "10 - 12" -> 10, "" -> None, invalid -> Some(-9).
 fn first_number_of_range(s: &str) -> Option<i64> {
     let a: String = s.chars().filter(|c| *c != '\n' && *c != ' ').collect();
@@ -223,6 +411,16 @@ struct Gen<'a> {
     store_values_txt: String,
     store_val_written: String,
     alias_names: String,
+    /// `DstVar_List`: the variables effects write to (step 2: still empty, those rows are refused)
+    dst_var_list: String,
+    /// `Undefined_Input_Var` / `Undef_Input_Var_Row`: input variables not defined when they were checked
+    undefined_input_var: String,
+    undef_input_var_rows: Vec<usize>,
+    /// `MaxUsed_Loc_InCh` / `MaxUsed_Loc_InCh_Row`
+    max_used_loc_in_ch: i64,
+    max_used_loc_in_ch_row: usize,
+    /// A row was refused as not supported yet: the variables it would define are unknown
+    refused_rows: bool,
     day_and_night: String,
     channel: i64,
     led_nr: i64,
@@ -266,6 +464,12 @@ impl<'a> Gen<'a> {
             store_values_txt: String::new(),
             store_val_written: String::new(),
             alias_names: String::new(),
+            dst_var_list: " ".into(),
+            undefined_input_var: String::new(),
+            undef_input_var_rows: Vec::new(),
+            max_used_loc_in_ch: -1,
+            max_used_loc_in_ch_row: 0,
+            refused_rows: false,
             day_and_night: String::new(),
             channel: 0,
             led_nr: 0,
@@ -358,6 +562,261 @@ impl<'a> Gen<'a> {
             }
         }
         out
+    }
+
+    /// `Find_Macro_in_Lib_Macros_Sheet` (M09_SelectMacro.bas): the first macro whose "Find" text is the line
+    /// up to and including its first "(" (`HouseT(` is looked up as `House(`).
+    fn find_macro_in_lib(&self, s: &str) -> Option<&'a crate::catalog::MacroDef> {
+        let s = s.replace("HouseT(", "House(");
+        let key = match s.find('(') {
+            Some(p) => format!("{}(", &s[..p]),
+            None => s,
+        };
+        self.catalog.macros.iter().find(|m| !m.find.is_empty() && m.find == key)
+    }
+
+    /// `Is_Switch_Var_then_Add_to_Ctr` (M06_Write_Header_SW.bas). 1: a "Switch?<1..250>" name, -1: such a
+    /// name with an invalid number, 0: no switch. The switch counters come with the switches (step 3);
+    /// rows using SwitchA..D are refused before this is reached.
+    fn is_switch_var(&mut self, name: &str, row: usize) -> i64 {
+        match is_in_nr_string(name, "Switch?", 1, 250) {
+            (1, _) => 1,
+            (-1, _) => {
+                self.err(row, format!("The number of the variable '{name}' is invalid (valid range: 1..250)"));
+                -1
+            }
+            _ => 0,
+        }
+    }
+
+    /// `Valid_Var_Name` (M06_Write_Header_SW.bas): is `name` a known input variable? Names that are not
+    /// known yet are noted and checked at the end (`Check_Detected_Variables`). Only an invalid switch
+    /// number makes it fail.
+    fn valid_var_name(&mut self, name: &str, row: usize) -> bool {
+        const STD_NAMES: [&str; 5] = ["SI_1", "SI_0", "SI_Enable_Sound", "SI_LocalVar", "#LocInCh"];
+        if STD_NAMES.contains(&name) {
+            return true;
+        }
+        match self.is_switch_var(name, row) {
+            1 => return true,
+            -1 => return false,
+            _ => {}
+        }
+        if self.dst_var_list.contains(&format!(" {name} ")) {
+            return true;
+        }
+        if self.in_ch_txt.contains(&format!("#define {name} ")) {
+            return true;
+        }
+        match is_in_nr_string(name, "LOC_INCH", 0, 250) {
+            (1, nr) => {
+                // Checked when the LOC_INCH defines are written
+                if nr > self.max_used_loc_in_ch {
+                    self.max_used_loc_in_ch = nr;
+                    self.max_used_loc_in_ch_row = row;
+                }
+                return true;
+            }
+            // Excel shows the message and goes on; the name then stays undefined
+            (-1, _) => self.err(row, format!("The number of the variable '{name}' is invalid (valid range: 0..250)")),
+            _ => {}
+        }
+        // "RM ..." names are valid with "#define USE_ATTiny_CAN_GBM" (return messages: not supported yet)
+        if !self.undefined_input_var.contains(&format!(" {name} ")) {
+            self.undefined_input_var += &format!("{name} ");
+            self.undef_input_var_rows.push(row);
+        }
+        true
+    }
+
+    /// `Get_InCh_Number_w_Err_Msg` (M09_SelectMacro.bas): the number added to "#InCh", -1 with a message if
+    /// it isn't a constant positive number.
+    fn in_ch_number(&mut self, arg: &str, row: usize) -> i64 {
+        match evaluate_constant(&arg.replace("#InCh", "0")) {
+            Some(v) if vba_round(v) >= 0 => vba_round(v),
+            _ => {
+                self.err(row, "Error in the logic expression: only a constant positive number may be added to '#InCh'");
+                -1
+            }
+        }
+    }
+
+    /// `Valid_Var_Name_and_Skip_InCh_and_Numbers` (M06_Write_Header_SW.bas)
+    fn valid_var_name_skip_in_ch_and_numbers(&mut self, arg: &str, row: usize) -> bool {
+        for sub in split_multi_delims(arg, " +-") {
+            if sub == "#InCh" {
+                if self.in_ch_number(arg, row) < 0 {
+                    return false;
+                }
+            } else if !is_numeric(&sub) && !self.valid_var_name(&sub, row) {
+                return false;
+            }
+        }
+        true
+    }
+
+    /// `Check_if_all_Variables_in_sequece_of_N_exists` (M06_Write_Header_SW.bas): an effect with `n` inputs
+    /// switched by a variable "Name5" also reads "Name6" … "Name<5+n-1>".
+    fn check_sequence_of_n(&mut self, r: usize, n: i64) -> bool {
+        let adr_or_name = self.sheet.rows[r].address.trim().to_string();
+        if adr_or_name.is_empty() {
+            self.err(r, "There is no address, switch or variable in this row");
+            return false;
+        }
+        if !is_numeric(adr_or_name.split(' ').next().unwrap_or("")) {
+            let adr_or_name = expand_name(&adr_or_name);
+            let (nr, txt_len) = get_nr_from_var(&adr_or_name);
+            if nr >= 0 {
+                let name: String = adr_or_name.chars().take(txt_len).collect();
+                for i in nr..nr + n {
+                    if !self.valid_var_name(&format!("{name}{i}"), r) {
+                        return false;
+                    }
+                }
+            }
+        }
+        true
+    }
+
+    /// `Check_if_all_Variables_in_sequece_exist` (M06_Write_Header_SW.bas)
+    fn check_sequence(&mut self, r: usize, ctr_name: &str, n_str: &str) -> bool {
+        let n = if ctr_name == "BinStates" {
+            let n = get_bin_inputs(val_i(n_str));
+            if n <= 0 {
+                self.err(r, "Invalid number of binary states. It must be between 1 and 63");
+                return false;
+            }
+            n
+        } else {
+            val_i(n_str)
+        };
+        self.check_sequence_of_n(r, n)
+    }
+
+    /// `Add_Logic_InpVars` (M06_Write_Header_SW.bas)
+    fn add_logic_inp_vars(&mut self, logic_exp: &str, r: usize) -> bool {
+        for arg in split_logic(logic_exp) {
+            let arg = arg.trim();
+            if !arg.is_empty() && !self.valid_var_name_skip_in_ch_and_numbers(arg, r) {
+                return false;
+            }
+        }
+        true
+    }
+
+    /// `Add_InpVars` (M06_Write_Header_SW.bas): check the input variables an effect line reads.
+    fn add_inp_vars(&mut self, macro_name: &str, def: &crate::catalog::MacroDef, line: &str, r: usize) -> bool {
+        const SECOND_INPUT_NAMES: [&str; 4] = ["InCh", "R_InCh", "InReset", "InCh2"];
+        let (Some(arg_list), Some(fil_list)) = (get_arguments(&def.prototype), get_arguments(line)) else {
+            return true;
+        };
+        if macro_name == "Logic" {
+            if fil_list.len() != 2 {
+                self.err(r, format!("Wrong number of parameters in 'Logic()' expression: '{line}'"));
+                return false;
+            }
+            return self.add_logic_inp_vars(&fil_list[1], r);
+        }
+        let mut det_cnt = 0;
+        let mut pos_counter_var = None;
+        for (arg_nr, arg) in arg_list.iter().enumerate() {
+            if matches!(arg.as_str(), "InCh_Cnt" | "States" | "BinStates") {
+                pos_counter_var = Some(arg_nr);
+            }
+            if SECOND_INPUT_NAMES.contains(&arg.as_str()) {
+                det_cnt += 1;
+                // VBA stops with a run-time error when the line has fewer arguments than the macro
+                let Some(fil) = fil_list.get(arg_nr) else {
+                    self.err(r, format!("Too few parameters in '{line}'"));
+                    return false;
+                };
+                if !self.valid_var_name_skip_in_ch_and_numbers(fil, r) {
+                    return false;
+                }
+            }
+        }
+        if let Some(pos) = pos_counter_var {
+            let n_str = fil_list.get(pos).cloned().unwrap_or_default();
+            return self.check_sequence(r, &arg_list[pos], &n_str);
+        }
+        let in_cnt_str = def.in_cnt.as_str();
+        if !in_cnt_str.is_empty() {
+            if is_numeric(in_cnt_str) && det_cnt != val_i(in_cnt_str) && !self.check_sequence_of_n(r, val_i(in_cnt_str))
+            {
+                return false;
+            }
+            if let Some(head) = in_cnt_str.strip_suffix('?') {
+                if is_numeric(head)
+                    && fil_list.get(2).is_some_and(|a| a == "#InCh+1")
+                    && !self.check_sequence_of_n(r, val_i(in_cnt_str))
+                {
+                    return false;
+                }
+            }
+        }
+        true
+    }
+
+    /// `Add_Inp_and_DstVars` (M06_Write_Header_SW.bas), the input part. The destination variables come with
+    /// the effects that set variables (step 2).
+    fn add_inp_and_dst_vars(&mut self, line: &str, r: usize) -> bool {
+        if !line.contains('(') {
+            return true;
+        }
+        let parts: Vec<&str> = line.split('(').collect();
+        if !parts[1].contains(')') {
+            return true;
+        }
+        let search = if parts[0] == "HouseT" { "House" } else { parts[0] };
+        let Some(def) = self.find_macro_in_lib(&format!("{search}(")) else { return true };
+        self.add_inp_vars(parts[0], def, line, r)
+    }
+
+    /// `First_Scan_of_Data_Rows` (M06_Write_Header_SW.bas), the variable part: before the rows are
+    /// processed, the input variables of every effect line are checked. Rows that are refused as not
+    /// supported yet are skipped: they don't reach the header.
+    fn first_scan(&mut self) {
+        let sheet = self.sheet;
+        for (r, row) in sheet.rows.iter().enumerate() {
+            if !row.enabled || unsupported_feature(row).is_some() || uses_destination_variables(row, self.catalog) {
+                continue;
+            }
+            for line in row.macro_text.split('\n') {
+                if !self.add_inp_and_dst_vars(line.trim(), r) {
+                    break;
+                }
+            }
+        }
+    }
+
+    /// `Find_Alias_Name_In_Sheet` (M06_Write_Header_SW.bas): an enabled row whose effect cell is
+    /// "// Define Input(<name>)". Excel's `Match` compares the whole cell, ignoring case.
+    fn find_alias_name_in_sheet(&self, name: &str) -> bool {
+        let wanted = format!("// Define Input({name})").to_lowercase();
+        self.sheet.rows.iter().any(|row| row.enabled && row.macro_text.to_lowercase() == wanted)
+    }
+
+    /// `Check_Detected_Variables` (M06_Write_Header_SW.bas): every input variable must be set somewhere.
+    /// Like Excel, only the first undefined one is reported.
+    fn check_detected_variables(&mut self) {
+        if self.refused_rows {
+            return;
+        }
+        let list = self.undefined_input_var.trim().to_string();
+        if list.is_empty() {
+            return;
+        }
+        for (nr, var) in list.split(' ').enumerate() {
+            let found = self.in_ch_txt.contains(&format!(" {var} "))
+                || self.dst_var_list.contains(&format!("{var} "))
+                || var == "[Multiplexer]"
+                || self.find_alias_name_in_sheet(var);
+            if !found {
+                let row = self.undef_input_var_rows[nr];
+                self.err(row, format!("The variable '{var}' is used as an input, but it is never set"));
+                return;
+            }
+        }
     }
 
     fn macro_store_type(&self, macro_text: &str) -> i64 {
@@ -655,10 +1114,12 @@ impl<'a> Gen<'a> {
             return;
         }
         if let Some(msg) = unsupported_feature(row) {
+            self.refused_rows = true;
             self.err(r, msg);
             return;
         }
         if uses_destination_variables(row, self.catalog) {
+            self.refused_rows = true;
             self.err(r, "Effects that set variables (DstVar) are not supported by MobaLedLib Studio yet");
             return;
         }
@@ -697,12 +1158,20 @@ impl<'a> Gen<'a> {
                     Some(_) => self.err(r, format!("The address '{}' is invalid", address.replace('\n', " "))),
                 }
             }
-        } else if !address.is_empty() {
-            self.err(
-                r,
-                "Variable names and return messages (RM) as address are not supported by MobaLedLib Studio yet",
-            );
-            return;
+        } else {
+            // A variable name as address (ProcessLine, M06_Write_Header.bas)
+            let var_name = expand_name(&address);
+            if var_name.starts_with("RM ") {
+                self.refused_rows = true;
+                self.err(r, "Return messages (RM) as address are not supported by MobaLedLib Studio yet");
+                return;
+            }
+            if !var_name.is_empty() {
+                if !self.valid_var_name(&var_name, r) {
+                    return;
+                }
+                addr = Addr::Name(var_name);
+            }
         }
         self.header_entry(r, addr);
     }
@@ -788,6 +1257,13 @@ impl<'a> Gen<'a> {
                 self.in_ch_txt += &format!("{}{}{NL}", pad(&format!("#define LOC_INCH{i}"), 32), self.channel);
                 self.channel += 1;
             }
+        }
+        // Create_Loc_InCh_Defines: Excel shows this error, but still writes the header
+        if self.max_used_loc_in_ch >= self.loc_in_ch_nr {
+            self.warnings.push(Diagnostic {
+                row: Some(self.max_used_loc_in_ch_row),
+                message: format!("Error: the variable 'LOC_INCH{}' is not defined", self.max_used_loc_in_ch),
+            });
         }
 
         let s = &self.layout.settings;
@@ -1037,9 +1513,12 @@ pub fn generate(
         });
     }
     let mut g = Gen::new(layout, sh, catalog);
+    // Create_HeaderFile: Init_HeaderFile_Generation_SW (first scan), the rows, Check_Detected_Variables
+    g.first_scan();
     for r in 0..sh.rows.len() {
         g.process_row(r);
     }
+    g.check_detected_variables();
     let header = g.write(opts);
     if !g.errors.is_empty() {
         return Err(GenerateError { errors: g.errors });
@@ -1156,6 +1635,214 @@ mod tests {
         }]);
         let e = generate(&l, 0, &catalog(), &opts()).unwrap_err();
         assert!(e.errors[0].message.contains("not supported"));
+    }
+
+    // ---- Variables as address (M06_Write_Header_SW.bas: Valid_Var_Name, Add_InpVars, Check_Detected_Variables)
+
+    fn row(address: &str, macro_text: &str) -> Row {
+        Row {
+            enabled: true,
+            address: address.into(),
+            input_type: Some(InputType::OnOff),
+            description: format!("{address} {macro_text}"),
+            macro_text: macro_text.into(),
+            leds: "1".into(),
+            in_cnt: 1,
+            ..Row::default()
+        }
+    }
+
+    fn gen(rows: Vec<Row>) -> Result<Generated, GenerateError> {
+        generate(&layout(rows), 0, &Catalog::bundled(), &opts())
+    }
+
+    #[test]
+    fn is_in_nr_string_like_vba() {
+        // "?" skips one character, which is not checked (Is_Switch_Var only looks at A..D afterwards)
+        assert_eq!(is_in_nr_string("SwitchA12", "Switch?", 1, 250), (1, 12));
+        assert_eq!(is_in_nr_string("SwitchE5", "Switch?", 1, 250), (1, 5));
+        assert_eq!(is_in_nr_string("SwitchB251", "Switch?", 1, 250), (-1, 251));
+        // Leading 0 and the characters "-+.,eE" are not a match at all
+        assert_eq!(is_in_nr_string("SwitchA0", "Switch?", 1, 250), (0, 0));
+        assert_eq!(is_in_nr_string("SwitchA05", "Switch?", 1, 250), (0, 0));
+        assert_eq!(is_in_nr_string("SwitchA1.5", "Switch?", 1, 250), (0, 0));
+        assert_eq!(is_in_nr_string("LOC_INCH7", "LOC_INCH", 0, 250), (1, 7));
+        assert_eq!(is_in_nr_string("LOC_INCH0", "LOC_INCH", 0, 250), (0, 0));
+        assert_eq!(is_in_nr_string("Switch", "Switch?", 1, 250), (0, 0));
+        assert_eq!(is_in_nr_string("Door1", "LOC_INCH", 0, 250), (0, 0));
+    }
+
+    #[test]
+    fn split_helpers_like_vba() {
+        // Test_SplitEx: the parts keep their spaces
+        assert_eq!(split_logic("A AND #InCh OR NOT B"), vec!["A ", " #InCh ", " ", " B"]);
+        assert_eq!(split_logic("A ANDAND B"), vec!["A ", " B"]);
+        assert_eq!(split_logic("DOOR"), vec!["DO", ""]);
+        assert!(split_logic("").is_empty());
+        // Test_SplitMultiDelims
+        assert_eq!(
+            split_multi_delims("  Text  with+several|delimmiters +|", " +|"),
+            vec!["Text", "with", "several", "delimmiters"]
+        );
+        assert_eq!(
+            get_arguments("Blink(#LED, #InCh , 1 Sec)"),
+            Some(vec!["#LED".into(), "#InCh".into(), "1 Sec".into()])
+        );
+        assert_eq!(get_arguments("Blink"), None);
+        assert_eq!(get_nr_from_var("Sig5"), (5, 3));
+        assert_eq!(get_nr_from_var("Sig"), (-2, 3));
+        assert_eq!(get_nr_from_var("12"), (-1, 0));
+        assert_eq!(get_bin_inputs(0), -1);
+        assert_eq!(get_bin_inputs(7), 3);
+        assert_eq!(get_bin_inputs(8), 4);
+        assert_eq!(get_bin_inputs(64), -1);
+        assert_eq!(expand_name("$Door"), "I0_Door");
+        assert_eq!(evaluate_constant("0+1"), Some(1.0));
+        assert_eq!(evaluate_constant("(0+2)*3"), Some(6.0));
+        assert_eq!(evaluate_constant("0+Foo"), None);
+    }
+
+    #[test]
+    fn standard_names_as_address() {
+        let g = gen(vec![row("SI_1", "Blink(#LED, #InCh, 1 Sec)")]).unwrap();
+        assert!(g.header.contains("  Blink(1, SI_1, 1 Sec)"), "{}", g.header);
+        // A variable address gets no Ext_Addr entry and no input channel
+        assert!(!g.header.contains("USE_EXT_ADDR"));
+        assert_eq!(g.input_channels, 0);
+    }
+
+    #[test]
+    fn a_dcc_define_as_address() {
+        // Valid_Var_Name: "#define <Name> " already in InChTxt (a row above)
+        let g = gen(vec![row("1", "Blink(#LED, #InCh, 1 Sec)"), row("INCH_DCC_1_ONOFF", "Blink(#LED, #InCh, 2 Sec)")])
+            .unwrap();
+        assert!(g.header.contains("  Blink(2, INCH_DCC_1_ONOFF, 2 Sec)"), "{}", g.header);
+    }
+
+    #[test]
+    fn a_dcc_define_of_a_later_row() {
+        // Not in InChTxt yet: noted as undefined, found by Check_Detected_Variables (" <Name> " in InChTxt)
+        let g = gen(vec![row("INCH_DCC_1_ONOFF", "Blink(#LED, #InCh, 2 Sec)"), row("1", "Blink(#LED, #InCh, 1 Sec)")])
+            .unwrap();
+        assert!(g.header.contains("  Blink(1, INCH_DCC_1_ONOFF, 2 Sec)"), "{}", g.header);
+    }
+
+    #[test]
+    fn an_alias_from_define_input() {
+        let g = gen(vec![row("5", "// Define Input(Door)"), row("Door", "Blink(#LED, #InCh, 1 Sec)")]).unwrap();
+        assert!(g.header.contains("#define Door                 INCH_DCC_5_ONOFF"), "{}", g.header);
+        assert!(g.header.contains("  Blink(2, Door, 1 Sec)"), "{}", g.header);
+    }
+
+    #[test]
+    fn an_alias_is_found_ignoring_case() {
+        // FastFind uses Excel's Match, which ignores case
+        assert!(gen(vec![row("5", "// define input(Door)"), row("Door", "Blink(#LED, #InCh, 1 Sec)")]).is_ok());
+    }
+
+    #[test]
+    fn an_undefined_variable_is_an_error() {
+        let e = gen(vec![row("Foo", "Blink(#LED, #InCh, 1 Sec)")]).unwrap_err();
+        assert_eq!(e.errors.len(), 1);
+        assert_eq!(e.errors[0].row, Some(1));
+        assert!(e.errors[0].message.contains("'Foo' is used as an input, but it is never set"));
+    }
+
+    #[test]
+    fn only_the_first_undefined_variable_is_reported() {
+        let e =
+            gen(vec![row("Foo", "Blink(#LED, #InCh, 1 Sec)"), row("Bar", "Blink(#LED, #InCh, 1 Sec)")]).unwrap_err();
+        assert_eq!(e.errors.len(), 1);
+        assert!(e.errors[0].message.contains("'Foo'"));
+    }
+
+    #[test]
+    fn a_dollar_name_is_expanded() {
+        let e = gen(vec![row("$Door", "Blink(#LED, #InCh, 1 Sec)")]).unwrap_err();
+        assert!(e.errors[0].message.contains("'I0_Door'"), "{:?}", e.errors);
+    }
+
+    #[test]
+    fn an_input_variable_in_the_effect_line() {
+        // Add_InpVars: arguments named InCh, R_InCh, InReset, InCh2 are checked
+        let e = gen(vec![row("", "Blinker(#LED, C1, Foo, 1 Sec)")]).unwrap_err();
+        assert!(e.errors[0].message.contains("'Foo' is used as an input"), "{:?}", e.errors);
+        assert!(gen(vec![row("", "Blinker(#LED, C1, SI_0, 1 Sec)")]).is_ok());
+    }
+
+    #[test]
+    fn a_sequence_of_variables() {
+        // EntrySignal3_RGB has InCnt 3 but only one InCh argument: Sig5, Sig6 and Sig7 are read
+        let mut r = row("Sig5", "EntrySignal3_RGB(#LED, #InCh)");
+        r.in_cnt = 3;
+        r.leds = "2".into();
+        let e = gen(vec![r]).unwrap_err();
+        assert!(e.errors[0].message.contains("'Sig5'"), "{:?}", e.errors);
+    }
+
+    #[test]
+    fn a_sequence_needs_an_address() {
+        let mut r = row("", "InCh_to_TmpVar(#InCh, 3)");
+        r.in_cnt = 3;
+        let e = gen(vec![r]).unwrap_err();
+        assert!(e.errors[0].message.contains("no address, switch or variable"), "{:?}", e.errors);
+    }
+
+    #[test]
+    fn binary_states_out_of_range() {
+        let e = gen(vec![row("5", "Charlie_Binary(#LED, #InCh, 64)")]).unwrap_err();
+        assert!(e.errors.iter().any(|d| d.message.contains("binary states")), "{:?}", e.errors);
+    }
+
+    #[test]
+    fn invalid_variable_numbers() {
+        let e = gen(vec![row("SwitchE251", "Blink(#LED, #InCh, 1 Sec)")]).unwrap_err();
+        assert!(e.errors[0].message.contains("'SwitchE251' is invalid (valid range: 1..250)"), "{:?}", e.errors);
+        let e = gen(vec![row("LOC_INCH251", "Blink(#LED, #InCh, 1 Sec)")]).unwrap_err();
+        assert!(e.errors[0].message.contains("'LOC_INCH251' is invalid (valid range: 0..250)"), "{:?}", e.errors);
+    }
+
+    #[test]
+    fn loc_inch_zero_is_not_a_loc_inch_name() {
+        // Is_in_Nr_String refuses the leading "0", so LOC_INCH0 is checked like any other name (Excel too)
+        let e = gen(vec![row("LOC_INCH0", "Blink(#LED, #InCh, 1 Sec)")]).unwrap_err();
+        assert!(e.errors[0].message.contains("'LOC_INCH0' is used as an input"), "{:?}", e.errors);
+    }
+
+    #[test]
+    fn an_unused_loc_inch_number_is_reported_but_written() {
+        // Create_Loc_InCh_Defines shows the error after the header was built
+        let g = gen(vec![row("LOC_INCH3", "Blink(#LED, #InCh, 1 Sec)")]).unwrap();
+        assert!(g.warnings.iter().any(|w| w.message.contains("'LOC_INCH3' is not defined") && w.row == Some(1)));
+    }
+
+    #[test]
+    fn return_messages_are_still_refused() {
+        let e = gen(vec![row("RM 300.1", "Blink(#LED, #InCh, 1 Sec)")]).unwrap_err();
+        assert!(e.errors[0].message.contains("Return messages (RM)"), "{:?}", e.errors);
+    }
+
+    #[test]
+    fn refused_rows_skip_the_undefined_check() {
+        // The variable may be set by the refused DstVar row: no misleading "never set"
+        let e =
+            gen(vec![row("", "MonoFlop(Door, SI_1, 1 Sec)"), row("Door", "Blink(#LED, #InCh, 1 Sec)")]).unwrap_err();
+        assert_eq!(e.errors.len(), 1, "{:?}", e.errors);
+        assert!(e.errors[0].message.contains("DstVar"));
+    }
+
+    #[test]
+    fn logic_arguments() {
+        let l = layout(vec![]);
+        let cat = Catalog::bundled();
+        let mut g = Gen::new(&l, &l.sheets[0], &cat);
+        assert!(g.add_inp_and_dst_vars("Logic(Out, #InCh OR Foo AND NOT SI_1)", 0));
+        assert_eq!(g.undefined_input_var, "Foo ");
+        assert!(g.errors.is_empty());
+        assert!(!g.add_inp_and_dst_vars("Logic(Out, #InCh+Foo)", 0));
+        assert!(g.errors[0].message.contains("constant positive number"));
+        assert!(!g.add_inp_and_dst_vars("Logic(Out)", 0));
+        assert!(g.errors[1].message.contains("Wrong number of parameters"));
     }
 
     #[test]
