@@ -29,8 +29,9 @@ fn main() {
 
     let target = std::env::var("TARGET").unwrap();
     if target.contains("msvc") {
-        // Visual Studio's compiler, as the Excel tool's MobaLedLibWrapper.dll was built
-        b.flag("/std:c++17").flag("/EHsc");
+        // FastLED doesn't compile with Visual Studio's cl; clang-cl does. The clang-cl that comes with
+        // Visual Studio (VC\Tools\Llvm) matches its C++ library; another one may be too old for it.
+        b.compiler(vs_clang_cl(&target)).flag("/std:c++17").flag("/EHsc");
     } else {
         b.flag("-std=gnu++17");
     }
@@ -39,6 +40,21 @@ fn main() {
     println!("cargo:rerun-if-changed=csrc");
     println!("cargo:rerun-if-changed=vendor/MobaLedLib/src");
     println!("cargo:rerun-if-changed=vendor/FastLED/src");
+}
+
+/// Visual Studio's own clang-cl: `VC\Tools\Llvm\x64\bin\clang-cl.exe` next to the cl.exe `cc` finds,
+/// else `clang-cl` from the PATH.
+fn vs_clang_cl(target: &str) -> PathBuf {
+    if let Some(cl) = cc::windows_registry::find_tool(target, "cl.exe") {
+        // …\VC\Tools\MSVC\<version>\bin\Host<arch>\<arch>\cl.exe
+        if let Some(tools) = cl.path().ancestors().nth(5) {
+            let clang = tools.join("Llvm").join("x64").join("bin").join("clang-cl.exe");
+            if clang.is_file() {
+                return clang;
+            }
+        }
+    }
+    PathBuf::from("clang-cl")
 }
 
 /// FastLED's core sources: src/*.cpp and src/fl/*.cpp, without the stub main() and the file system (it needs
