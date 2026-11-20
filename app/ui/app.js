@@ -27,6 +27,13 @@ const state = {
   lang: storedLang(),
 };
 
+/** Texts the Excel tool shows too, by id, in the chosen language (ui_texts, mll-core/src/ui_text.rs). */
+let TX = {};
+function tx(id) { return TX[id] ?? id; }
+async function loadTexts() {
+  try { TX = await invoke('ui_texts', { lang: state.lang }); } catch { TX = {}; }
+}
+
 function storedLang() {
   let l = null;
   try { l = localStorage.getItem('mll.lang'); } catch { /* storage unavailable */ }
@@ -44,7 +51,7 @@ const FQBN_PRESETS = [
 const PROTOCOLS = [
   ['DCC', 'DCC', 'Digital command station (Roco, ESU, Lenz…). A second Arduino reads the track signal.'],
   ['Selectrix', 'Selectrix', 'Trix / Rautenhaus SX bus.'],
-  ['CAN', 'Märklin CAN', 'CS2 / CS3 via CAN bus. The central must be connected.'],
+  ['CAN', 'can_bus', 'CS2 / CS3 via CAN bus. The central must be connected.'],
   ['LNet', 'LocoNet', 'Digitrax / Uhlenbrock LocoNet.'],
 ];
 
@@ -54,7 +61,8 @@ const PLATFORMS = [
   ['PICO', 'Raspberry Pi Pico', 'RP2040 · parallel outputs'],
 ];
 
-const INPUT_TYPES = [['on_off', 'On / Off'], ['red', 'Red'], ['green', 'Green'], ['push', 'Push button']];
+/** Input types; the label is the text id of the Excel tool's input selection dialog (see tx). */
+const INPUT_TYPES = [['on_off', 'on_off'], ['red', 'red'], ['green', 'green'], ['push', 'push']];
 
 const ROOM_TYPES = ('ROOM_DARK ROOM_BRIGHT ROOM_WARM_W ROOM_RED ROOM_D_RED ROOM_COL0 ROOM_COL1 ROOM_COL2 ROOM_COL3 ' +
   'ROOM_COL4 ROOM_COL5 ROOM_COL345 ROOM_TV0 ROOM_TV1 ROOM_CHIMNEY ROOM_CHIMNEYD ROOM_CHIMNEYB ROOM_TV0_CHIMNEY ' +
@@ -148,7 +156,7 @@ function groupKey(m) {
 }
 
 function langSelect() {
-  return `<select class="select" id="lang" aria-label="Language of the effect texts and messages" style="width:auto">
+  return `<select class="select" id="lang" aria-label="${esc(tx('language'))}" style="width:auto">
     ${LANGS.map(([v, n]) => `<option value="${v}" ${v === state.lang ? 'selected' : ''}>${n}</option>`).join('')}</select>`;
 }
 
@@ -241,7 +249,7 @@ async function guardUnsaved() {
   const answer = await dialog.message('Your changes will be lost if you don’t save them.', {
     title: `Save changes to “${state.layout.name}”?`,
     kind: 'warning',
-    buttons: { yes: 'Save', no: 'Don’t Save', cancel: 'Cancel' },
+    buttons: { yes: 'Save', no: 'Don’t Save', cancel: tx('cancel') },
   });
   if (answer === 'Save') return actSave(false);
   return answer === 'Don’t Save';
@@ -459,7 +467,7 @@ function triggerCell(r) {
   if (!r.address.trim()) return `<div class="a">—</div><div class="b">${r.in_cnt > 0 ? 'always on' : ''}</div>`;
   const prefix = sheet().protocol === 'Selectrix' ? 'SX ' : sheet().protocol + ' ';
   const addr = sheet().protocol === 'Selectrix' && r.bit_pos ? `${r.address}.${r.bit_pos}` : r.address;
-  const t = INPUT_TYPES.find(([k]) => k === r.input_type)?.[1] ?? '';
+  const t = tx(INPUT_TYPES.find(([k]) => k === r.input_type)?.[1] ?? '');
   return `<div class="a mono">${esc(prefix + addr)}</div><div class="b">${esc(t)}</div>`;
 }
 
@@ -494,7 +502,7 @@ function renderMain() {
         <input class="sheet-title" id="sheet-name" value="${esc(s.name)}" aria-label="Sheet name">
         <div class="muted" style="margin-top:4px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
           <select class="select" id="sheet-protocol" style="width:auto;height:26px;font-size:12px" aria-label="Command system">
-            ${PROTOCOLS.map(([v, l]) => `<option value="${v}" ${v === s.protocol ? 'selected' : ''}>${esc(l)}</option>`).join('')}
+            ${PROTOCOLS.map(([v, l]) => `<option value="${v}" ${v === s.protocol ? 'selected' : ''}>${esc(tx(l))}</option>`).join('')}
           </select>
           <span>${ledCount} LEDs · ${rows().length} effects${a ? ` · ${a.input_channels} input channels` : ''}</span>
         </div>
@@ -505,7 +513,7 @@ function renderMain() {
     </div>
     <div class="table" role="grid">
       <div class="table-inner">
-        <div class="trow thead" role="row"><span>On</span><span>Name</span><span>Trigger</span><span>Effect</span><span>Output</span><span>Plug</span><span></span></div>
+        <div class="trow thead" role="row"><span>${esc(tx('active'))}</span><span>${esc(tx('description'))}</span><span>${esc(tx(s.protocol === 'Selectrix' ? 'sx_channel' : 'address'))}</span><span>${esc(tx('effect'))}</span><span>Output</span><span>${esc(tx('distributor_plug'))}</span><span></span></div>
         <div class="tbody">${body || `<div class="empty">${rows().length ? 'No effect matches the filter.' : 'This sheet is empty.'}<br><button class="btn primary" data-act="add">${ICON.plus} Add the first effect</button></div>`}</div>
       </div>
     </div>
@@ -584,19 +592,19 @@ function renderInspector() {
     <div class="section">
       <div class="h">Trigger</div>
       <div class="grid2">
-        <label class="field">${sx ? 'SX channel' : sheet().protocol + ' address'}
+        <label class="field">${esc(tx(sx ? 'sx_channel' : 'address'))}
           <input class="input mono" data-bind="address" value="${esc(r.address)}" placeholder="always on"></label>
-        ${sx ? `<label class="field">Bit (1–8)<input class="input mono" data-bind="bit_pos" value="${esc(r.bit_pos)}"></label>` : `
-        <label class="field">Input type
+        ${sx ? `<label class="field">${esc(tx('bit_pos'))}<input class="input mono" data-bind="bit_pos" value="${esc(r.bit_pos)}"></label>` : `
+        <label class="field">${esc(tx('type'))}
           <select class="select" data-bind="input_type">
             <option value="">—</option>
-            ${INPUT_TYPES.map(([v, l]) => `<option value="${v}" ${r.input_type === v ? 'selected' : ''}>${l}</option>`).join('')}
+            ${INPUT_TYPES.map(([v, l]) => `<option value="${v}" ${r.input_type === v ? 'selected' : ''}>${esc(tx(l))}</option>`).join('')}
           </select></label>`}
       </div>
-      ${sx ? `<label class="field">Input type<select class="select" data-bind="input_type"><option value="">—</option>${INPUT_TYPES.map(([v, l]) => `<option value="${v}" ${r.input_type === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>` : ''}
+      ${sx ? `<label class="field">${esc(tx('type'))}<select class="select" data-bind="input_type"><option value="">—</option>${INPUT_TYPES.map(([v, l]) => `<option value="${v}" ${r.input_type === v ? 'selected' : ''}>${esc(tx(l))}</option>`).join('')}</select></label>` : ''}
       <div class="grid2">
-        <label class="field">Start value<input class="input mono" data-bind="start_value" value="${esc(r.start_value)}" placeholder="0"></label>
-        <label class="field">Group<input class="input" data-bind="filter" value="${esc(r.filter)}" placeholder="e.g. Station"></label>
+        <label class="field">${esc(tx('start_value'))}<input class="input mono" data-bind="start_value" value="${esc(r.start_value)}" placeholder="0"></label>
+        <label class="field">${esc(tx('filter'))}<input class="input" data-bind="filter" value="${esc(r.filter)}" placeholder="e.g. Station"></label>
       </div>
       <div class="hint">Uses ${r.in_cnt} input channel${r.in_cnt === 1 ? '' : 's'}. An empty address keeps the effect always on.</div>
     </div>
@@ -604,8 +612,8 @@ function renderInspector() {
     <div class="section">
       <div class="h">Wiring</div>
       <div class="grid3">
-        <label class="field">Distributor<input class="input mono" data-bind="distributor" value="${esc(r.distributor)}"></label>
-        <label class="field">Plug<input class="input mono" data-bind="plug" value="${esc(r.plug)}"></label>
+        <label class="field">${esc(tx('distributor'))}<input class="input mono" data-bind="distributor" value="${esc(r.distributor)}"></label>
+        <label class="field">${esc(tx('plug'))}<input class="input mono" data-bind="plug" value="${esc(r.plug)}"></label>
         <label class="field">LED channel<input class="input mono" data-bind="led_channel" value="${r.led_channel ?? ''}" placeholder="0"></label>
       </div>
     </div>
@@ -615,9 +623,9 @@ function renderInspector() {
       <label class="field" style="margin-top:10px">Macro (one per line)
         <textarea class="textarea" rows="3" data-bind="macro_text" spellcheck="false">${esc(r.macro_text)}</textarea></label>
       <div class="grid3">
-        <label class="field">LEDs<input class="input mono" data-bind="leds" value="${esc(r.leds)}"></label>
-        <label class="field">InCnt<input class="input mono" data-bind="in_cnt" value="${r.in_cnt}"></label>
-        <label class="field">Loc InCh<input class="input mono" data-bind="loc_in_ch" value="${r.loc_in_ch}"></label>
+        <label class="field">${esc(tx('leds'))}<input class="input mono" data-bind="leds" value="${esc(r.leds)}"></label>
+        <label class="field">${esc(tx('in_cnt'))}<input class="input mono" data-bind="in_cnt" value="${r.in_cnt}"></label>
+        <label class="field">${esc(tx('loc_in_ch'))}<input class="input mono" data-bind="loc_in_ch" value="${r.loc_in_ch}"></label>
       </div>
     </details>`;
   renderDiag();
@@ -627,7 +635,7 @@ function renderDiag() {
   const el = $('#insp-diag');
   if (!el) return;
   const msgs = (state.analysis?.errors ?? []).filter((d) => d.row === state.sel).map((d) => d.message);
-  el.innerHTML = msgs.length ? `<div class="diag">${msgs.map(esc).join('<br>')}</div>` : '';
+  el.innerHTML = msgs.length ? `<div class="diag" style="white-space:pre-line">${msgs.map(esc).join('<br>')}</div>` : '';
 }
 
 /** Parameter label/value pairs of a filled macro call, for display. */
@@ -720,13 +728,13 @@ function welcomeHtml() {
         <section style="display:flex;flex-direction:column;gap:12px">
           <b>1 · How do you control your layout?</b>
           <div class="cards" role="radiogroup" aria-label="Command system">
-            ${PROTOCOLS.map(([v, l, d]) => `<button class="card" role="radio" aria-checked="${w.protocol === v}" data-act="w-protocol" data-v="${v}"><b>${esc(l)}</b><span>${esc(d)}</span></button>`).join('')}
+            ${PROTOCOLS.map(([v, l, d]) => `<button class="card" role="radio" aria-checked="${w.protocol === v}" data-act="w-protocol" data-v="${v}"><b>${esc(tx(l))}</b><span>${esc(d)}</span></button>`).join('')}
           </div>
         </section>
         <section style="display:flex;flex-direction:column;gap:12px">
           <b>2 · Which controller drives the LEDs?</b>
           <div class="cards" role="radiogroup" aria-label="Controller">
-            ${PLATFORMS.map(([v, l, d]) => `<button class="card" role="radio" aria-checked="${w.platform === v}" data-act="w-platform" data-v="${v}"><b>${esc(l)}</b><span>${esc(d)}</span></button>`).join('')}
+            ${PLATFORMS.map(([v, l, d]) => `<button class="card" role="radio" aria-checked="${w.platform === v}" data-act="w-platform" data-v="${v}"><b>${esc(tx(l))}</b><span>${esc(d)}</span></button>`).join('')}
           </div>
         </section>
         <div><button class="btn primary" data-act="create" style="height:44px;padding:0 22px">Create layout</button></div>
@@ -770,14 +778,14 @@ function newSheetHtml() {
       <div style="padding:16px;display:flex;flex-direction:column;gap:14px">
         <label class="field">Name<input class="input" id="sheet-new-name" value="${esc(m.name)}"></label>
         <div class="cards" role="radiogroup" aria-label="Command system">
-          ${PROTOCOLS.map(([v, l, d]) => `<button class="card" role="radio" aria-checked="${m.protocol === v}" data-act="sheet-protocol" data-v="${v}"><b>${esc(l)}</b><span>${esc(d)}</span></button>`).join('')}
+          ${PROTOCOLS.map(([v, l, d]) => `<button class="card" role="radio" aria-checked="${m.protocol === v}" data-act="sheet-protocol" data-v="${v}"><b>${esc(tx(l))}</b><span>${esc(d)}</span></button>`).join('')}
         </div>
         <div class="hint">Each sheet is uploaded to its own LED Arduino.</div>
       </div>
       <div class="modal-foot">
         ${state.layout.sheets.length > 1 ? '' : ''}
         <span class="grow"></span>
-        <button class="btn" data-act="close">Cancel</button>
+        <button class="btn" data-act="close">${esc(tx('cancel'))}</button>
         <button class="btn primary" data-act="sheet-create">Create sheet</button>
       </div>
     </div>`;
@@ -874,7 +882,7 @@ function pickerHtml() {
           <input id="picker-q" type="search" placeholder="Search: house, signal, servo, Blink…" value="${esc(m.q)}"></label>
         <span class="grow" style="flex:1"></span>
         ${langSelect()}
-        <button class="btn icon" data-act="close" aria-label="Close">✕</button>
+        <button class="btn icon" data-act="close" aria-label="${esc(tx('close'))}">✕</button>
       </div>
       <div class="modal-body">
         <nav class="picker-cats" aria-label="Categories">
@@ -894,7 +902,7 @@ function pickerHtml() {
       <div class="modal-foot">
         <span class="muted" style="font-size:12px">${list.length} of ${state.catalog.macros.length} effects</span>
         <span class="grow"></span>
-        <button class="btn" data-act="close">Cancel</button>
+        <button class="btn" data-act="close">${esc(tx('cancel'))}</button>
         <button class="btn primary" data-act="pick-apply" ${def && def.dialog !== 'ColTab' ? '' : 'disabled'}>${m.edit >= 0 ? 'Apply' : 'Add to sheet'}</button>
       </div>
     </div>`;
@@ -996,7 +1004,7 @@ function headerHtml() {
     <div class="modal" role="dialog" aria-modal="true" aria-label="Generated code">
       <div class="modal-head"><h2>LEDs_AutoProg.h</h2><span class="muted">Generated for sheet “${esc(sheet().name)}”</span><span class="grow" style="flex:1"></span>
         <button class="btn" data-act="copy-header" ${m.text ? '' : 'disabled'}>Copy</button>
-        <button class="btn icon" data-act="close" aria-label="Close">✕</button></div>
+        <button class="btn icon" data-act="close" aria-label="${esc(tx('close'))}">✕</button></div>
       <div class="modal-body" style="flex-direction:column">${body}</div>
     </div>`;
 }
@@ -1009,31 +1017,31 @@ function settingsHtml() {
   const presets = FQBN_PRESETS.some(([v]) => v === l.board.fqbn) ? FQBN_PRESETS : [[l.board.fqbn, l.board.fqbn], ...FQBN_PRESETS];
   return `
     <div class="modal narrow" role="dialog" aria-modal="true" aria-label="Layout settings">
-      <div class="modal-head"><h2>Layout settings</h2><span class="grow" style="flex:1"></span><button class="btn icon" data-act="close" aria-label="Close">✕</button></div>
+      <div class="modal-head"><h2>Layout settings</h2><span class="grow" style="flex:1"></span><button class="btn icon" data-act="close" aria-label="${esc(tx('close'))}">✕</button></div>
       <div style="padding:16px;display:flex;flex-direction:column;gap:18px;overflow-y:auto">
         <label class="field">Layout name<input class="input" data-set="name" value="${esc(l.name)}"></label>
-        <div class="section"><div class="h">LED Arduino</div>
+        <div class="section"><div class="h">${esc(tx('led_arduino'))}</div>
           <div class="grid2">
             <label class="field">Controller<select class="select" data-set="platform">${PLATFORMS.map(([v, n]) => `<option value="${v}" ${v === l.board.platform ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></label>
             <label class="field">Board (arduino-cli)<select class="select" data-set="fqbn">${presets.map(([v, n]) => `<option value="${esc(v)}" ${v === l.board.fqbn ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></label>
           </div>
         </div>
-        <div class="section"><div class="h">House() timing</div>
+        <div class="section"><div class="h">${esc(tx('house_times'))}</div>
           <div class="grid2">
-            <label class="field">Min. seconds until a room changes<input class="input mono" data-set="house_min_t" value="${s.house_min_t ?? ''}" placeholder="50"></label>
-            <label class="field">Max. seconds until a room changes<input class="input mono" data-set="house_max_t" value="${s.house_max_t ?? ''}" placeholder="150"></label>
+            <label class="field">${esc(tx('house_min_t'))}<input class="input mono" data-set="house_min_t" value="${s.house_min_t ?? ''}" placeholder="50"></label>
+            <label class="field">${esc(tx('house_max_t'))}<input class="input mono" data-set="house_max_t" value="${s.house_max_t ?? ''}" placeholder="150"></label>
           </div>
         </div>
         <div class="section"><div class="h">Command station</div>
           <div class="grid2">
-            <label class="field">DCC address offset<input class="input mono" data-set="dcc_offset" value="${s.dcc_offset}"><span class="hint">4 for Roco and some others</span></label>
+            <label class="field">${esc(tx('dcc_offset'))}<input class="input mono" data-set="dcc_offset" value="${s.dcc_offset}"><span class="hint">4 for Roco and some others</span></label>
             <label class="field">Simulate button release<select class="select" data-set="gen_button_release_com">
               ${[[0, 'Legacy'], [1, 'Off'], [2, 'Mode 1'], [3, 'Mode 2']].map(([v, n]) => `<option value="${v}" ${v === s.gen_button_release_com ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
           </div>
           <label style="display:flex;gap:10px;align-items:center"><input type="checkbox" data-set="use_spi" ${s.use_spi ? 'checked' : ''}> Use SPI between the DCC and the LED Arduino</label>
-          <label style="display:flex;gap:10px;align-items:center"><input type="checkbox" data-set="color_test_mode" ${s.color_test_mode ? 'checked' : ''}> Allow the color test program to set LED colors (RS232)</label>
+          <label style="display:flex;gap:10px;align-items:center"><input type="checkbox" data-set="color_test_mode" ${s.color_test_mode ? 'checked' : ''}> ${esc(tx('color_test'))}</label>
         </div>
-        <div class="section"><div class="h">Effect texts</div>
+        <div class="section"><div class="h">${esc(tx('language'))}</div>
           <div>${langSelect()}</div>
           <span class="hint">Only English and German are written by the MobaLedLib authors; the other languages are machine translations from the Excel tool.</span>
         </div>
@@ -1091,7 +1099,7 @@ function uploadHtml() {
   return `
     <div class="modal" role="dialog" aria-modal="true" aria-label="Upload" style="width:min(900px,100%)">
       <div class="modal-head"><h2>Upload to the LED Arduino</h2><span class="muted">Sheet “${esc(sheet().name)}”</span><span class="grow" style="flex:1"></span>
-        <button class="btn icon" data-act="close" aria-label="Close" ${m.running ? 'disabled' : ''}>✕</button></div>
+        <button class="btn icon" data-act="close" aria-label="${esc(tx('close'))}" ${m.running ? 'disabled' : ''}>✕</button></div>
       <div style="flex:1;min-height:0;padding:16px;display:flex;flex-direction:column;gap:14px">
         ${notice}${errs}
         <div class="grid2">
@@ -1199,7 +1207,7 @@ async function perform(act, t = null, i = -1) {
       break;
     }
     case 'del-sheet':
-      if (await dialog.ask(`“${sheet().name}” and its ${rows().length} effects will be removed.`, { title: 'Delete sheet?', kind: 'warning', okLabel: 'Delete', cancelLabel: 'Cancel' })) {
+      if (await dialog.ask(`“${sheet().name}” and its ${rows().length} effects will be removed.`, { title: 'Delete sheet?', kind: 'warning', okLabel: 'Delete', cancelLabel: tx('cancel') })) {
         state.layout.sheets.splice(state.sheet, 1);
         state.sheet = 0;
         state.sel = rows().length ? 0 : -1;
@@ -1222,7 +1230,7 @@ async function perform(act, t = null, i = -1) {
       if (!r) break;
       const m = macroOf(r.macro_text);
       const name = r.description || (m ? macroTitle(m) : r.macro_text.split('(')[0]) || 'this effect';
-      if (await dialog.ask(`“${name}” will be removed from the sheet.`, { title: 'Delete effect?', kind: 'warning', okLabel: 'Delete', cancelLabel: 'Cancel' })) {
+      if (await dialog.ask(`“${name}” will be removed from the sheet.`, { title: 'Delete effect?', kind: 'warning', okLabel: 'Delete', cancelLabel: tx('cancel') })) {
         deleteRow(state.sel);
         renderSidebar();
       }
@@ -1314,7 +1322,7 @@ document.addEventListener('change', (ev) => {
   else if (el.id === 'lang') {
     state.lang = el.value;
     try { localStorage.setItem('mll.lang', state.lang); } catch { /* storage unavailable */ }
-    renderModal(); renderMain(); renderInspector();
+    loadTexts().then(() => { renderModal(); renderMain(); renderInspector(); });
     analyze(); // the generator messages are in the chosen language too
   }
   else if (el.id === 'up-fqbn') { state.layout.board.fqbn = el.value; setDirty(true); renderStatus(); }
@@ -1357,6 +1365,7 @@ listen('tauri://drag-drop', (ev) => {
 (async function start() {
   try {
     indexCatalog(await invoke('get_catalog'));
+    await loadTexts();
   } catch (e) {
     document.body.textContent = 'Could not load the macro catalog: ' + errText(e);
     return;

@@ -8,6 +8,7 @@ pub mod lang;
 pub mod leds;
 pub mod model;
 pub mod pgf;
+pub mod ui_text;
 pub mod vba;
 
 pub use catalog::Catalog;

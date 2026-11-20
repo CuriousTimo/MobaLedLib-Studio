@@ -115,7 +115,7 @@ Rows that use one of these features are reported as an error instead of producin
 | LED simulator | missing |
 | Test buttons on the sheet | missing |
 | Import directly from `.xlsm` (use "Save data to file" in Excel and import the `.MLL_pgf`) | not planned |
-| User interface in other languages than English (effect texts are already translated) | missing |
+| User interface in other languages than English: effect texts, generator messages and the texts the Excel tool shows too (column headers, `Config` page, some buttons) are translated; the rest of the app is English ([docs/translations.md](docs/translations.md)) | partly |
 | Code-signed installers (macOS shows "unidentified developer", Windows SmartScreen warns) | missing |
 
 ### Planned

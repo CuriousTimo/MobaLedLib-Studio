@@ -143,8 +143,18 @@ struct Analysis {
 
 /// `lang`: the language of the messages, as a code of [`mll_core::catalog::LANGUAGES`] (default English).
 fn gen_options(lang: Option<&str>) -> GenOptions {
-    let language = lang.and_then(|l| LANGUAGES.iter().position(|&c| c == l)).unwrap_or(mll_core::lang::ENGLISH);
-    GenOptions { lib_version: catalog().lib_version.clone(), language, ..GenOptions::default() }
+    GenOptions { lib_version: catalog().lib_version.clone(), language: language(lang), ..GenOptions::default() }
+}
+
+/// Excel's language number of a code of [`LANGUAGES`] (default English).
+fn language(lang: Option<&str>) -> usize {
+    lang.and_then(|l| LANGUAGES.iter().position(|&c| c == l)).unwrap_or(mll_core::lang::ENGLISH)
+}
+
+/// The texts of the user interface that the Excel tool shows too, in language `lang`.
+#[tauri::command]
+fn ui_texts(lang: Option<String>) -> BTreeMap<&'static str, String> {
+    mll_core::ui_text::texts(catalog(), language(lang.as_deref()))
 }
 
 /// LED numbers and validation for one sheet. Called after every edit.
@@ -426,6 +436,7 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             get_catalog,
+            ui_texts,
             new_layout,
             open_layout,
             open_layout_path,
