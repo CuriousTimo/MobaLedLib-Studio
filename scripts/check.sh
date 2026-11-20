@@ -9,8 +9,8 @@ echo "== fmt"
 cargo fmt --all --check
 echo "== clippy"
 cargo clippy --workspace --all-targets -- -D warnings
-echo "== test (core and CLI)"
-cargo test -p mll-core -p mll-cli
+echo "== test (core, CLI and simulator)"
+cargo test -p mll-core -p mll-cli -p mll-sim
 echo "== build the app"
 cargo build -p mobaledlib-studio
 

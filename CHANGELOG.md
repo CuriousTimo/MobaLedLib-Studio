@@ -7,6 +7,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 ## [Unreleased]
 
 ### Added
+- Simulator, step 1: the crate `mll-sim` compiles the engine of MobaLedLib 3.5.0 (tag `v3.5.0`) and FastLED
+  (Jueff fork `a55f336`, as the Excel tool installs) for the computer, from git submodules, and runs a
+  `Config[]` table with the time set by the caller (create, update, set/get input, LED colours, like the
+  Excel tool's `MobaLedLibWrapper.dll`). Not in the app yet, and not compared with the Excel simulator.
 - Variables as address: standard inputs (`SI_1`, `SI_0`, …), the generated `INCH_…` defines, `LOC_INCH<n>`
   and names given with `// Define Input(Name)`, as the Excel tool checks them (`Valid_Var_Name`,
   `Add_InpVars`, `Check_Detected_Variables`); an input variable that is never set is an error. Not yet

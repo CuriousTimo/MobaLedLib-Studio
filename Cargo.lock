@@ -2161,6 +2161,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "mll-sim"
+version = "0.1.0-beta.2"
+dependencies = [
+ "cc",
+]
+
+[[package]]
 name = "mobaledlib-studio"
 version = "0.1.0-beta.2"
 dependencies = [

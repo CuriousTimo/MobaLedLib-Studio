@@ -166,9 +166,13 @@ For uploading you also need:
 
 ## Build from source
 
-Requirements: Rust (stable), and on Linux the WebKitGTK libraries
+Requirements: Rust (stable), a C++ compiler (Xcode command line tools, GCC, or on Windows `clang-cl` from
+LLVM), and on Linux the WebKitGTK libraries
 (`sudo apt install libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf`). Node.js is **not** needed:
 the frontend is plain HTML, CSS and JavaScript in `app/ui`.
+
+The simulator compiles MobaLedLib and FastLED from git submodules; clone with `--recursive` or run
+`git submodule update --init` once.
 
 ```sh
 cargo run -p mobaledlib-studio        # start the app
@@ -188,6 +192,8 @@ has no app icon, because the icon and the app metadata live in the `.app` bundle
 ```
 crates/mll-core     data model, .MLL_pgf import/export, catalog, LED numbering, header generation
 crates/mll-cli      the `mll` command line tool
+crates/mll-sim      LED simulator: the MobaLedLib 3.5.0 engine and FastLED (Jueff fork a55f336) compiled for
+                    the computer (submodules in crates/mll-sim/vendor)
 app/src-tauri       the desktop app (Tauri 2): commands, file dialogs, arduino-cli integration
 app/ui              the user interface (no build step)
 data/catalog.json   effect catalog extracted from the Excel workbook

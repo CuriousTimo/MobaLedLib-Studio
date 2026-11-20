@@ -1,0 +1,8 @@
+[submodule "crates/mll-sim/vendor/MobaLedLib"]
+	path = crates/mll-sim/vendor/MobaLedLib
+	url = https://github.com/Hardi-St/MobaLedLib.git
+	shallow = true
+[submodule "crates/mll-sim/vendor/FastLED"]
+	path = crates/mll-sim/vendor/FastLED
+	url = https://github.com/Jueff/FastLED.git
+	shallow = true
