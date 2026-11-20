@@ -48,7 +48,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Test core and CLI
-        run: cargo test -p mll-core -p mll-cli
+        run: cargo test -p mll-core -p mll-cli -p mll-sim
       - name: Linux system libraries for the app
         if: runner.os == 'Linux'
         run: |
