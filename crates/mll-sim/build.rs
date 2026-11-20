@@ -31,9 +31,7 @@ fn main() {
     if target.contains("msvc") {
         // FastLED doesn't compile with Visual Studio's cl; clang-cl does. The clang-cl that comes with
         // Visual Studio (VC\Tools\Llvm) matches its C++ library; another one may be too old for it.
-        let clang = vs_clang_cl(&target);
-        println!("cargo:warning=mll-sim: compiling with {}", clang.display());
-        b.compiler(clang)
+        b.compiler(vs_clang_cl(&target))
             .flag("/std:c++17")
             .flag("/EHsc")
             // A clang-cl older than the one Visual Studio's C++ library expects stops at STL1000 otherwise
