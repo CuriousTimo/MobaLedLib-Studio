@@ -35,6 +35,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   texts are not found in the sheet by Excel either and stay German in every language. Row numbers in the
   texts are the app's row numbers, not Excel's sheet rows. Messages without an Excel counterpart stay
   English (listed in `mll-core/src/gen_text.rs`).
+- The user interface uses the Excel tool's texts where Excel shows the same thing: the column headers
+  (table and inspector), the input types, the Märklin CAN protocol name, the `Config` page labels (House()
+  times, DCC offset, color test, language) and the Cancel and Close buttons, in the chosen language
+  (`mll-core/src/ui_text.rs`). They are taken literally, so English shows Excel's "Activ", "Start- val",
+  "Distribution- number". The language setting now covers the effect texts, the messages and these texts.
+  All other texts of the app are our own and stay English, listed in `docs/translations.md`. Messages show
+  their line ends.
 
 ## [0.1.0-beta.2] - 2026-11-18
 
