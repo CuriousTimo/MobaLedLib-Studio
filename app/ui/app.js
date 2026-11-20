@@ -1087,7 +1087,7 @@ function uploadHtml() {
   let notice = '';
   if (!st) notice = '<div class="muted">Looking for arduino-cli…</div>';
   else if (!st.cli) notice = `<div class="notice bad"><div><b>arduino-cli was not found.</b><br>MobaLedLib Studio compiles and uploads with the official <code>arduino-cli</code>. Install it (macOS: <code>brew install arduino-cli</code>, Windows/Linux: see arduino.github.io/arduino-cli), then press Refresh.</div></div>`;
-  else if (!st.sketch) notice = `<div class="notice bad"><div><b>The MobaLedLib library is not installed.</b><br>Run <code>arduino-cli core install arduino:avr</code> and <code>arduino-cli lib install MobaLedLib</code> (it installs FastLED and the other dependencies), then press Refresh.</div></div>`;
+  else if (!st.sketch) notice = `<div class="notice bad"><div><b>The MobaLedLib library is not installed.</b><br>Download the library bundle (all libraries in the versions that work with MobaLedLib) and copy its folders into the <code>libraries</code> folder of your sketchbook, as the page explains. Install the board with <code>arduino-cli core install arduino:avr@1.8.6</code>. Then press Refresh.<br><button class="btn" data-act="open-libraries" style="margin-top:8px">Get the library bundle</button><span class="mono" id="link-error" style="font-size:11px;opacity:.8"></span></div></div>`;
   else notice = `<div class="notice ok"><div>arduino-cli ${esc(st.version)} · MobaLedLib sketch found<br><span class="mono" style="font-size:11px;opacity:.8">${esc(st.sketch)}</span></div></div>`;
   const errs = m.errors ? `<div class="notice bad" style="white-space:pre-line"><div><b>Fix these problems first:</b><br>${esc(errText(m.errors))}</div></div>` : '';
   const steps = ['Generate', 'Compile', 'Upload'].map((s, i) => {
@@ -1171,10 +1171,16 @@ document.addEventListener('click', async (ev) => {
   await perform(t.dataset.act, t, i);
 });
 
+const LIBRARIES_URL = 'https://github.com/CuriousTimo/MobaLedLib-Libraries#readme';
+
 /** Run an action from a button (data-act) or from the native menu (menu item id). */
 async function perform(act, t = null, i = -1) {
   const m = state.modal;
   switch (act) {
+    // If the browser can't be opened, show the address so it can be typed in
+    case 'open-libraries':
+      window.__TAURI__.opener.openUrl(LIBRARIES_URL).catch(() => { const e = $('#link-error'); if (e) e.textContent = ' ' + LIBRARIES_URL; });
+      break;
     // file
     case 'new': await actNew(); break;
     case 'open': await actOpen(false); break;

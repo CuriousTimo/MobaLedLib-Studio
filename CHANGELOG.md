@@ -29,6 +29,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   row by row, formula cells left out, with English and then the text itself as fallback.
 
 ### Changed
+- Upload: when the MobaLedLib library is missing, the upload window links to the library bundle
+  ([MobaLedLib-Libraries](https://github.com/CuriousTimo/MobaLedLib-Libraries): all libraries in the versions
+  of the Excel tool, FastLED from the Jueff fork) instead of `arduino-cli lib install MobaLedLib`, which
+  installs the newest FastLED that MobaLedLib 3.5.0 doesn't compile with. The README says the same.
 - The errors and warnings of the header generation are now the Excel tool's own texts, translated through
   the `Languages` sheet into the language chosen for the effect texts. The texts are taken as Excel shows
   them, including the flaws of the machine translations (a "|" without a line end, missing spaces). Three

@@ -173,7 +173,7 @@ fn log(app: &AppHandle, line: impl Into<String>) {
 pub fn build(app: &AppHandle, header: &str, fqbn: &str, port: Option<&str>) -> Result<(), String> {
     let cli = find_cli().ok_or("arduino-cli was not found. Install it from https://arduino.github.io/arduino-cli/")?;
     let sketch_src = installed_sketch(&cli).ok_or(
-        "The MobaLedLib Arduino library is not installed. Install it with: arduino-cli lib install MobaLedLib",
+        "The MobaLedLib Arduino library is not installed. Install the library bundle from https://github.com/CuriousTimo/MobaLedLib-Libraries",
     )?;
     let work = prepare_sketch(app, &sketch_src, header)?;
     log(app, format!("› Sketch: {}", work.display()));
