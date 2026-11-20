@@ -148,7 +148,7 @@ function groupKey(m) {
 }
 
 function langSelect() {
-  return `<select class="select" id="lang" aria-label="Language of the effect texts" style="width:auto">
+  return `<select class="select" id="lang" aria-label="Language of the effect texts and messages" style="width:auto">
     ${LANGS.map(([v, n]) => `<option value="${v}" ${v === state.lang ? 'selected' : ''}>${n}</option>`).join('')}</select>`;
 }
 
@@ -207,7 +207,7 @@ function scheduleAnalyze() {
 async function analyze() {
   if (!state.layout) return;
   try {
-    state.analysis = await invoke('analyze', { layout: state.layout, sheet: state.sheet });
+    state.analysis = await invoke('analyze', { layout: state.layout, sheet: state.sheet, lang: state.lang });
   } catch (e) {
     state.analysis = null;
     toast(errText(e), true);
@@ -979,7 +979,7 @@ async function openHeader() {
   state.modal = { type: 'header', text: null, errors: null };
   renderModal();
   try {
-    state.modal.text = await invoke('generate_header', { layout: state.layout, sheet: state.sheet });
+    state.modal.text = await invoke('generate_header', { layout: state.layout, sheet: state.sheet, lang: state.lang });
   } catch (e) {
     if (state.modal) state.modal.errors = e;
   }
@@ -1064,7 +1064,7 @@ async function refreshUpload() {
     m.log += errText(e) + '\n';
   }
   try {
-    await invoke('generate_header', { layout: state.layout, sheet: state.sheet });
+    await invoke('generate_header', { layout: state.layout, sheet: state.sheet, lang: state.lang });
     m.errors = null;
   } catch (e) {
     m.errors = e;
@@ -1138,7 +1138,7 @@ async function runUpload(withUpload) {
     }
   });
   try {
-    await invoke('build_and_upload', { layout: state.layout, sheet: state.sheet, port: withUpload ? m.port : null });
+    await invoke('build_and_upload', { layout: state.layout, sheet: state.sheet, port: withUpload ? m.port : null, lang: state.lang });
     m.result = 'ok';
     m.step = withUpload ? 3 : 2;
     m.log += withUpload ? '\n✓ Uploaded. The LEDs should start within a few seconds.\n' : '\n✓ Compiled without errors.\n';
@@ -1315,6 +1315,7 @@ document.addEventListener('change', (ev) => {
     state.lang = el.value;
     try { localStorage.setItem('mll.lang', state.lang); } catch { /* storage unavailable */ }
     renderModal(); renderMain(); renderInspector();
+    analyze(); // the generator messages are in the chosen language too
   }
   else if (el.id === 'up-fqbn') { state.layout.board.fqbn = el.value; setDirty(true); renderStatus(); }
 });

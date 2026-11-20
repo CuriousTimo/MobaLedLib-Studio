@@ -8,6 +8,7 @@ use chrono::{NaiveDateTime, Timelike};
 use serde::Serialize;
 
 use crate::catalog::{call_args, Catalog};
+use crate::gen_text as t;
 use crate::leds::{self, LED_CHANNELS, SERIAL_CHANNEL_PREFIX};
 use crate::model::{InputType, Layout, Protocol, Row, Sheet};
 use crate::vba::{is_numeric, pad, pad_left, val, val_i};
@@ -74,6 +75,9 @@ pub struct GenOptions {
     /// MobaLedLib version (for START_MSG)
     pub lib_version: String,
     pub now: NaiveDateTime,
+    /// Language of the messages: Excel's language number (0 = German, 1 = English, ...; see
+    /// [`crate::catalog::LANGUAGES`])
+    pub language: usize,
 }
 
 impl Default for GenOptions {
@@ -82,6 +86,7 @@ impl Default for GenOptions {
             program: format!("MobaLedLib Studio {}", env!("CARGO_PKG_VERSION")),
             lib_version: String::new(),
             now: chrono::Local::now().naive_local(),
+            language: crate::lang::ENGLISH,
         }
     }
 }
@@ -425,6 +430,27 @@ fn unsupported_feature(row: &Row) -> Option<String> {
     None
 }
 
+fn tr(catalog: &Catalog, de: &str, lang: usize) -> String {
+    catalog.languages.get(de, lang).replace("\r\n", "\n").replace('\r', "\n")
+}
+
+fn trf(catalog: &Catalog, de: &str, lang: usize, args: &[&str]) -> String {
+    let mut s = tr(catalog, de, lang);
+    for (i, a) in args.iter().enumerate() {
+        s = s.replace(&format!("#{}#", i + 1), a);
+    }
+    s
+}
+
+/// VBA `Str()` of a number that isn't negative: a leading space.
+fn vba_str(n: i64) -> String {
+    if n < 0 {
+        n.to_string()
+    } else {
+        format!(" {n}")
+    }
+}
+
 struct Gen<'a> {
     sheet: &'a Sheet,
     layout: &'a Layout,
@@ -466,6 +492,8 @@ struct Gen<'a> {
 
     errors: Vec<Diagnostic>,
     warnings: Vec<Diagnostic>,
+    /// [`GenOptions::language`]
+    lang: usize,
 }
 
 impl<'a> Gen<'a> {
@@ -516,7 +544,18 @@ impl<'a> Gen<'a> {
             max_channels,
             errors: Vec::new(),
             warnings: Vec::new(),
+            lang: crate::lang::ENGLISH,
         }
+    }
+
+    /// `Get_Language_Str`: a message of [`crate::gen_text`] in the chosen language; `vbCr` becomes a line end.
+    fn tr(&self, de: &str) -> String {
+        tr(self.catalog, de, self.lang)
+    }
+
+    /// `Replace(Get_Language_Str(de), "#1#", args[0])`, then "#2#", …
+    fn trf(&self, de: &str, args: &[&str]) -> String {
+        trf(self.catalog, de, self.lang, args)
     }
 
     fn err(&mut self, row: usize, msg: impl Into<String>) {
@@ -631,7 +670,7 @@ impl<'a> Gen<'a> {
                 1
             }
             (-1, _) => {
-                self.err(row, format!("The number of the variable '{name}' is invalid (valid range: 1..250)"));
+                self.err(row, self.trf(t::VAR_NR_INVALID, &[name, "1..250"]));
                 -1
             }
             _ => 0,
@@ -667,7 +706,7 @@ impl<'a> Gen<'a> {
                 return true;
             }
             // Excel shows the message and goes on; the name then stays undefined
-            (-1, _) => self.err(row, format!("The number of the variable '{name}' is invalid (valid range: 0..250)")),
+            (-1, _) => self.err(row, self.trf(t::VAR_NR_INVALID, &[name, "0..250"])),
             _ => {}
         }
         // "RM ..." names are valid with "#define USE_ATTiny_CAN_GBM" (return messages: not supported yet)
@@ -684,7 +723,7 @@ impl<'a> Gen<'a> {
         match evaluate_constant(&arg.replace("#InCh", "0")) {
             Some(v) if vba_round(v) >= 0 => vba_round(v),
             _ => {
-                self.err(row, "Error in the logic expression: only a constant positive number may be added to '#InCh'");
+                self.err(row, self.tr(t::IN_CH_CONSTANT));
                 -1
             }
         }
@@ -709,7 +748,7 @@ impl<'a> Gen<'a> {
     fn check_sequence_of_n(&mut self, r: usize, n: i64) -> bool {
         let adr_or_name = self.sheet.rows[r].address.trim().to_string();
         if adr_or_name.is_empty() {
-            self.err(r, "There is no address, switch or variable in this row");
+            self.err(r, self.trf(t::NO_ADDRESS, &[&(r + 1).to_string()]));
             return false;
         }
         if !is_numeric(adr_or_name.split(' ').next().unwrap_or("")) {
@@ -732,7 +771,7 @@ impl<'a> Gen<'a> {
         let n = if ctr_name == "BinStates" {
             let n = get_bin_inputs(val_i(n_str));
             if n <= 0 {
-                self.err(r, "Invalid number of binary states. It must be between 1 and 63");
+                self.err(r, self.tr(t::BIN_STATES));
                 return false;
             }
             n
@@ -761,7 +800,7 @@ impl<'a> Gen<'a> {
         };
         if macro_name == "Logic" {
             if fil_list.len() != 2 {
-                self.err(r, format!("Wrong number of parameters in 'Logic()' expression: '{line}'"));
+                self.err(r, self.trf(t::LOGIC_PARAMS, &[line]));
                 return false;
             }
             return self.add_logic_inp_vars(&fil_list[1], r);
@@ -822,7 +861,7 @@ impl<'a> Gen<'a> {
                 }
             }
         }
-        self.err(r, format!("Error detecting the destination variable in macro '{line}'"));
+        self.err(r, self.trf(t::DST_VAR_DETECT, &[line]));
         None
     }
 
@@ -903,12 +942,7 @@ impl<'a> Gen<'a> {
         };
         let (start_nr, txt_len) = get_nr_from_var(&arg1);
         if start_nr < 0 {
-            self.err(
-                r,
-                format!(
-                    "The destination variable '{arg1}' must end with a number because it is part of a sequence. Example: {arg1}0"
-                ),
-            );
+            self.err(r, self.trf(t::DST_VAR_SEQUENCE, &[&arg1, &(r + 1).to_string(), &format!("{arg1}0")]));
             return false;
         }
         let name: String = arg1.chars().take(txt_len).collect();
@@ -955,7 +989,7 @@ impl<'a> Gen<'a> {
             },
         };
         if !res {
-            self.err(r, format!("Error in the definition of the destination variable(s): '{line}'"));
+            self.err(r, self.trf(t::DST_VAR_DEFINITION, &[line, &(r + 1).to_string()]));
         }
         res
     }
@@ -1003,7 +1037,7 @@ impl<'a> Gen<'a> {
         if !line.starts_with(name) {
             return Ok(None);
         }
-        let print_error = || format!("Error reading the pin numbers in line: '{line}'");
+        let print_error = || self.trf(t::PIN_READ, &[line]);
         let Some(p) = line.find(')').filter(|&p| p >= name.len()) else { return Err(print_error()) };
         let nr_str = line[name.len()..p].replace(',', " ").trim_matches(' ').replace("  ", " ");
         if nr_str.is_empty() {
@@ -1018,14 +1052,14 @@ impl<'a> Gen<'a> {
         for one_pin in nr_arr {
             let pin = self.alias_to_pin(one_pin);
             if !valid_pins.contains(&format!(" {pin} ")) {
-                return Err(format!("The pin '{one_pin}' is not valid in the '{command}' command"));
+                return Err(self.trf(t::PIN_INVALID, &[one_pin, &command]));
             }
             // A virtual pin may be used more than once
             if one_pin != VIRTUAL_CHANNEL {
                 let needle = format!(" {one_pin} ");
                 let p = vba_instr(1, &format!(" {} ", line.replace(['(', ')'], " ")), &needle);
                 if vba_instr(p + 1, &format!(" {line} "), &needle) > 0 {
-                    return Err(format!("The pin '{one_pin}' is used more than once in the '{command}' command"));
+                    return Err(self.trf(t::PIN_TWICE, &[one_pin, &command]));
                 }
             }
             if !list.is_empty() {
@@ -1099,10 +1133,7 @@ impl<'a> Gen<'a> {
         if self.multi_set_dst_var_list != " " {
             self.warnings.push(Diagnostic {
                 row: None,
-                message: format!(
-                    "The following destination variables are set more than once: {}",
-                    self.multi_set_dst_var_list.trim()
-                ),
+                message: format!("{}\n{}", self.tr(t::MULTI_SET_DST_VARS), self.multi_set_dst_var_list),
             });
         }
         if !self.no_duplicates_in_inp_lists() {
@@ -1145,18 +1176,9 @@ impl<'a> Gen<'a> {
         for pin in vba_split(inp_lst1) {
             if inp_lst2.contains(&format!(" {pin} ")) {
                 let message = if letter2_or_name.chars().count() == 1 {
-                    format!(
-                        "The input pin '{pin}' of the Arduino is used as input in the two switch functions \
-                         '{letter1}' and '{letter2_or_name}'. The two switch functions can't be used at the same time. \
-                         The pins can be changed with the functions 'Set_Switch?_InpLst()'. \
-                         Attention: The hardware has to be changed too!"
-                    )
+                    self.trf(t::PIN_IN_TWO_SWITCHES, &[pin, letter1, letter2_or_name])
                 } else {
-                    format!(
-                        "The input pin '{pin}' of the Arduino is used as input in the switch function '{letter1}' \
-                         and at the same time as {letter2_or_name} pin. The pins can be changed with the functions \
-                         'Set_Switch?_InpLst()' and '{set_funct2}'. Attention: The hardware has to be changed too!"
-                    )
+                    self.trf(t::PIN_SWITCH_AND_OTHER, &[pin, letter1, letter2_or_name, set_funct2])
                 };
                 self.errors.push(Diagnostic { row: None, message });
                 return false;
@@ -1170,12 +1192,12 @@ impl<'a> Gen<'a> {
         if self.sw.inp_cnt[1] > 0 || self.sw.inp_cnt[2] > 0 {
             let rst = self.sw.rst_pin.clone();
             let clk = self.sw.clk_pin.clone();
-            let name = "Reset pin for SwitchB or SwitchC";
-            if !self.no_duplicates_in_two_inp_lists(letter1, name, inp_lst1, &rst, "Set_RST_Pin_Number()") {
+            let name = self.trf(t::PIN_FOR_SWITCH_B_C, &["Reset"]);
+            if !self.no_duplicates_in_two_inp_lists(letter1, &name, inp_lst1, &rst, "Set_RST_Pin_Number()") {
                 return false;
             }
-            let name = "Clock pin for SwitchB or SwitchC";
-            if !self.no_duplicates_in_two_inp_lists(letter1, name, inp_lst1, &clk, "Set_CLK_Pin_Number()") {
+            let name = self.trf(t::PIN_FOR_SWITCH_B_C, &["Clock"]);
+            if !self.no_duplicates_in_two_inp_lists(letter1, &name, inp_lst1, &clk, "Set_CLK_Pin_Number()") {
                 return false;
             }
         }
@@ -1226,15 +1248,7 @@ impl<'a> Gen<'a> {
                 let list = format!(" {} ", self.sw.inp_lst[i]);
                 for pin in ["10", "11", "12"] {
                     if list.contains(&format!(" {pin} ")) {
-                        self.errors.push(Diagnostic {
-                            row: None,
-                            message: format!(
-                                "The Arduino pin '{pin}' can't be used as input or output if DCC, LNet or Selectrix \
-                                 data are read via the SPI bus. Another pin has to be used or the SPI communication has \
-                                 to be disabled on the 'Config' page. Attention: The two Arduinos must then be connected \
-                                 via RS232."
-                            ),
-                        });
+                        self.errors.push(Diagnostic { row: None, message: self.trf(t::SPI_PIN, &[pin]) });
                         return false;
                     }
                 }
@@ -1267,7 +1281,7 @@ impl<'a> Gen<'a> {
                 || self.find_alias_name_in_sheet(var);
             if !found {
                 let row = self.undef_input_var_rows[nr];
-                self.err(row, format!("The variable '{var}' is used as an input, but it is never set"));
+                self.err(row, self.trf(t::INPUT_NEVER_SET, &[var]));
                 return;
             }
         }
@@ -1326,7 +1340,7 @@ impl<'a> Gen<'a> {
             StoreStatus::CounterOn if sv == "0" || sv_numeric => StoreStatus::CounterOff,
             StoreStatus::OnOff | StoreStatus::Trigger if sv == "0" || sv_numeric => StoreStatus::None,
             StoreStatus::None if sv == "*" => {
-                self.err(r, format!("Start value '{sv}': this effect can't store its state"));
+                self.err(r, format!("{}{sv}{}", self.tr(t::ENTRY), self.tr(t::IN_START_COLUMN)));
                 return None;
             }
             s => s,
@@ -1341,7 +1355,7 @@ impl<'a> Gen<'a> {
             return;
         }
         if sv < 0 {
-            self.err(r, "Negative start value");
+            self.err(r, format!("{}{}", self.tr(t::NEGATIVE_START), r + 1));
         }
         let mut desc = self.description(r);
         let mut mask: i64 = 1;
@@ -1357,7 +1371,7 @@ impl<'a> Gen<'a> {
             mask *= 2;
         }
         if sv > mask - 1 {
-            self.err(r, format!("Start value is too big. Maximum: {}", mask - 1));
+            self.err(r, format!("{}{}{}{}", self.tr(t::START_IN_ROW), r + 1, self.tr(t::START_TOO_BIG), mask - 1));
         }
     }
 
@@ -1401,7 +1415,7 @@ impl<'a> Gen<'a> {
                 }
             }
             if led_nr < 0 {
-                self.err(r, "The LED number must not be negative (check a previous Next_LED)");
+                self.err(r, self.tr(t::NEGATIVE_LED));
                 return None;
             }
             if cmd.contains("#LED") && row.leds.trim().is_empty() && !self.warnings.iter().any(|w| w.row == Some(r)) {
@@ -1474,7 +1488,16 @@ impl<'a> Gen<'a> {
                 if self.address_range_exists(a, in_cnt, t) {
                     cod = self.define_name(a, t);
                     if !self.in_ch_txt.contains(&cod) {
-                        self.err(r, format!("Address {a} is already used with another type"));
+                        self.err(
+                            r,
+                            format!(
+                                "{}{a}{}{}{}",
+                                self.tr(t::THE_ADDRESS),
+                                self.tr(t::IN_ROW),
+                                r + 1,
+                                self.tr(t::OTHER_TYPE)
+                            ),
+                        );
                     }
                     addr = Addr::Name(cod.clone());
                 } else {
@@ -1493,7 +1516,7 @@ impl<'a> Gen<'a> {
             }
         };
         if led_channel >= LED_CHANNELS {
-            self.err(r, format!("Invalid LED channel. Channels 0-{} are allowed", LED_CHANNELS - 1));
+            self.err(r, self.trf(t::LED_CHANNEL, &[&(r + 1).to_string(), &vba_str(LED_CHANNELS as i64 - 1)]));
             return;
         }
         if let Some(n) = self.led_numbers.rows[r] {
@@ -1519,7 +1542,7 @@ impl<'a> Gen<'a> {
             {
                 let kind = if status == StoreStatus::OnOff { "IS_TOGGLE + " } else { "IS_PULSE  + " };
                 if in_cnt > 63 {
-                    self.err(r, "Too many inputs to store (> 63)");
+                    self.err(r, self.trf(t::STORE_TOO_MANY, &[&(r + 1).to_string()]));
                 }
                 self.store_values_txt += &format!(
                     "           {{ {kind}{}, {}}},      // {comment}{NL}",
@@ -1554,7 +1577,7 @@ impl<'a> Gen<'a> {
             self.ext_addr_txt += &line;
             self.start_value_entry(r);
             if in_cnt > 100 {
-                self.err(r, format!("InCnt '{in_cnt}' is invalid"));
+                self.err(r, format!("{}{in_cnt}{}", self.tr(t::ENTRY), self.tr(t::IN_IN_CNT_COLUMN)));
             } else {
                 self.channel += in_cnt;
             }
@@ -1585,10 +1608,10 @@ impl<'a> Gen<'a> {
                             addr = Addr::Num(sx_ch * 8 + bp - 1);
                             self.addr_comment = format!("SX {},{}: ", pad_left(&sx_ch.to_string(), 2), bit_p);
                         } else {
-                            self.err(r, format!("Wrong bit position '{bit_p}'"));
+                            self.err(r, format!("{}{}", t::WRONG_BIT_POS, r + 1));
                         }
                     } else {
-                        self.err(r, "Wrong Selectrix channel");
+                        self.err(r, format!("{}{}", t::WRONG_SX_CHANNEL, r + 1));
                     }
                 }
             } else {
@@ -1600,11 +1623,21 @@ impl<'a> Gen<'a> {
                 match first_number_of_range(&address) {
                     Some(a) if row.in_cnt == 0 => {
                         let _ = a;
-                        self.err(r, "This effect is always active and can't be switched by an address");
+                        self.err(r, format!("{}{}{}", self.tr(t::ALWAYS_ACTIVE_1), r + 1, self.tr(t::ALWAYS_ACTIVE_2)));
                     }
                     None => {}
                     Some(a) if a >= 1 && a <= max_addr => addr = Addr::Num(a),
-                    Some(_) => self.err(r, format!("The address '{}' is invalid", address.replace('\n', " "))),
+                    Some(_) => {
+                        let a = address.replace('\n', " ");
+                        let m = format!(
+                            "{}{a}{}{}{}",
+                            self.tr(t::THE_ADDRESS),
+                            self.tr(t::IN_ROW),
+                            r + 1,
+                            self.tr(t::IS_INVALID)
+                        );
+                        self.err(r, m)
+                    }
                 }
             }
         } else {
@@ -1670,27 +1703,16 @@ impl<'a> Gen<'a> {
         let mut start_abuttons = 0;
         if sw_a > 0 || read_ldr {
             if sw_a > 0 && !self.platform_bool("SupportsAnalogButtons") {
-                self.errors.push(Diagnostic {
-                    row: None,
-                    message: "Analog buttons are not supported on this platform.".into(),
-                });
+                self.errors.push(Diagnostic { row: None, message: self.tr(t::ANALOG_NOT_SUPPORTED) });
                 return false;
             }
             if read_ldr && !self.platform_bool("SupportsLDR") {
-                self.errors.push(Diagnostic {
-                    row: None,
-                    message: "A light sensor is not supported on this platform.".into(),
-                });
+                self.errors.push(Diagnostic { row: None, message: self.tr(t::LDR_NOT_SUPPORTED) });
                 return false;
             }
             let ana_but_pins: Vec<String> = vba_split(&self.sw.inp_lst[0]).iter().map(|s| s.to_string()).collect();
             if sw_a > ana_but_pins.len() as i64 * 10 {
-                self.errors.push(Diagnostic {
-                    row: None,
-                    message: "More analog buttons are used than possible. More analog inputs have to be defined to \
-                              read them. This is done with the command 'Set_SwitchA_InpLst()' in the macro column."
-                        .into(),
-                });
+                self.errors.push(Diagnostic { row: None, message: self.tr(t::TOO_MANY_ANALOG) });
                 return false;
             }
             p(out, "#ifndef CONFIG_ONLY");
@@ -1771,14 +1793,7 @@ impl<'a> Gen<'a> {
 
         let d_pins = vba_split(&self.sw.inp_lst[3]).len() as i64;
         if sw_d > d_pins {
-            self.errors.push(Diagnostic {
-                row: None,
-                message: format!(
-                    "More SwitchD switches are used than pins are defined. More inputs have to be defined to read \
-                     them. This is done with the command 'Set_SwitchD_InpLst()' in the macro column. Last possible \
-                     switch: 'SwitchD{d_pins}'"
-                ),
-            });
+            self.errors.push(Diagnostic { row: None, message: self.trf(t::TOO_MANY_SWITCH_D, &[&d_pins.to_string()]) });
             return false;
         }
         if sw_d > 0 {
@@ -1973,13 +1988,8 @@ impl<'a> Gen<'a> {
             cnt += n;
         }
         if exp_out_pins >= pins.len() {
-            self.errors.push(Diagnostic {
-                row: None,
-                message: format!(
-                    "More LED channels are used than LED output pins are defined ({} needed)",
-                    exp_out_pins + 1
-                ),
-            });
+            self.errors
+                .push(Diagnostic { row: None, message: self.trf(t::LED_PINS, &[&(exp_out_pins + 1).to_string()]) });
         }
         p(out, "                                                                             \\");
         for ch in 0..LED_CHANNELS {
@@ -2114,7 +2124,8 @@ impl<'a> Gen<'a> {
         if num_leds > max_led {
             self.errors.push(Diagnostic {
                 row: None,
-                message: format!("Too many LEDs: {num_leds}. At most {max_led} RGB LEDs are possible on this board"),
+                message: format!("{}{num_leds}\n{}", self.tr(t::MAX_LEDS_1), self.tr(t::MAX_LEDS_2))
+                    .replace("#1#", &max_led.to_string()),
             });
         }
 
@@ -2135,7 +2146,10 @@ impl<'a> Gen<'a> {
         if self.max_used_loc_in_ch >= self.loc_in_ch_nr {
             self.warnings.push(Diagnostic {
                 row: Some(self.max_used_loc_in_ch_row),
-                message: format!("Error: the variable 'LOC_INCH{}' is not defined", self.max_used_loc_in_ch),
+                message: self.trf(
+                    t::VAR_NOT_DEFINED,
+                    &[&format!("LOC_INCH{}", self.max_used_loc_in_ch), &(self.max_used_loc_in_ch_row + 1).to_string()],
+                ),
             });
         }
 
@@ -2211,10 +2225,7 @@ impl<'a> Gen<'a> {
         }
         let (min_t, max_t) = (s.house_min_t.unwrap_or(50), s.house_max_t.unwrap_or(150));
         if min_t > max_t || max_t == 0 {
-            self.errors.push(Diagnostic {
-                row: None,
-                message: "House(): the minimal time must be smaller or equal to the maximal time".into(),
-            });
+            self.errors.push(Diagnostic { row: None, message: self.tr(t::HOUSE_TIMES) });
         }
         p!("");
         if s.color_test_mode {
@@ -2359,17 +2370,11 @@ impl<'a> Gen<'a> {
         if self.channel - 1 > 250 {
             self.errors.push(Diagnostic {
                 row: None,
-                message: format!(
-                    "Too many input channels: at most 250 are available, the configuration uses {}",
-                    self.channel - 1
-                ),
+                message: format!("{}{}.\n\n{}", self.tr(t::IN_CH_TOO_MANY), self.channel - 1, self.tr(t::IN_CH_USE)),
             });
         }
         if self.config_txt.is_empty() {
-            self.warnings.push(Diagnostic {
-                row: None,
-                message: "No effect is active: the program will not control any LED".into(),
-            });
+            self.warnings.push(Diagnostic { row: None, message: self.tr(t::EMPTY_CONFIG) });
         }
         o
     }
@@ -2390,11 +2395,12 @@ pub fn generate(
         return Err(GenerateError {
             errors: vec![Diagnostic {
                 row: None,
-                message: format!("{} is not supported on {}", sh.protocol.page_id(), layout.board.platform.id()),
+                message: trf(catalog, t::PROTOCOL_NOT_SUPPORTED, opts.language, &[sh.protocol.page_id()]),
             }],
         });
     }
     let mut g = Gen::new(layout, sh, catalog);
+    g.lang = opts.language;
     // Create_HeaderFile: Init_HeaderFile_Generation_SW (first scan), the rows, Check_Detected_Variables
     if !g.first_scan() {
         return Err(GenerateError { errors: g.errors });
@@ -2420,11 +2426,14 @@ mod tests {
             program: "Test".into(),
             lib_version: "3.5.0".into(),
             now: NaiveDateTime::parse_from_str("2026-10-26 21:05:09", "%Y-%m-%d %H:%M:%S").unwrap(),
+            language: crate::lang::ENGLISH,
         }
     }
 
     fn catalog() -> Catalog {
-        let mut c = Catalog::default();
+        static LANGUAGES: std::sync::OnceLock<crate::lang::LanguageSheet> = std::sync::OnceLock::new();
+        let mut c =
+            Catalog { languages: LANGUAGES.get_or_init(|| Catalog::bundled().languages).clone(), ..Catalog::default() };
         let mut am = std::collections::BTreeMap::new();
         am.insert("LED_Pins".to_string(), "6 A4 A5 A6 A7".to_string());
         am.insert("MaxLed".to_string(), "256".to_string());
@@ -2629,7 +2638,30 @@ mod tests {
         let e = gen(vec![row("Foo", "Blink(#LED, #InCh, 1 Sec)")]).unwrap_err();
         assert_eq!(e.errors.len(), 1);
         assert_eq!(e.errors[0].row, Some(1));
-        assert!(e.errors[0].message.contains("'Foo' is used as an input, but it is never set"));
+        assert!(e.errors[0]
+            .message
+            .contains("Error: The variable 'Foo' is used as an input, but is not set anywhere."));
+    }
+
+    #[test]
+    fn messages_in_the_chosen_language() {
+        let l = layout(vec![row("Foo", "Blink(#LED, #InCh, 1 Sec)")]);
+        let msg = |language| generate(&l, 0, &Catalog::bundled(), &GenOptions { language, ..opts() }).unwrap_err();
+        assert_eq!(
+            msg(0).errors[0].message,
+            "Fehler: Die Variable 'Foo' wird als Eingang benutzt, wird aber nirgendwo gesetzt."
+        );
+        assert_eq!(
+            msg(2).errors[0].message,
+            "Fout: De variabele 'Foo' wordt gebruikt als invoer, maar wordt nergens ingesteld."
+        );
+        // vbCr in the German text: a line end
+        let l = layout(vec![row("SwitchE251", "Blink(#LED, #InCh, 1 Sec)")]);
+        let e = generate(&l, 0, &Catalog::bundled(), &GenOptions { language: 0, ..opts() }).unwrap_err();
+        assert_eq!(
+            e.errors[0].message,
+            "Fehler: Die Nummer der Variable 'SwitchE251' ist ungültig!\n\nGültiger Bereich: 1..250"
+        );
     }
 
     #[test]
@@ -2675,15 +2707,27 @@ mod tests {
     #[test]
     fn binary_states_out_of_range() {
         let e = gen(vec![row("5", "Charlie_Binary(#LED, #InCh, 64)")]).unwrap_err();
-        assert!(e.errors.iter().any(|d| d.message.contains("binary states")), "{:?}", e.errors);
+        assert!(e.errors.iter().any(|d| d.message.contains("Anzahl der binären Zustände ungültig")), "{:?}", e.errors);
     }
 
     #[test]
     fn invalid_variable_numbers() {
         let e = gen(vec![row("SwitchE251", "Blink(#LED, #InCh, 1 Sec)")]).unwrap_err();
-        assert!(e.errors[0].message.contains("'SwitchE251' is invalid (valid range: 1..250)"), "{:?}", e.errors);
+        assert!(
+            e.errors[0]
+                .message
+                .contains("Error: The number of the variable 'SwitchE251' is invalid! || Valid range: 1..250"),
+            "{:?}",
+            e.errors
+        );
         let e = gen(vec![row("LOC_INCH251", "Blink(#LED, #InCh, 1 Sec)")]).unwrap_err();
-        assert!(e.errors[0].message.contains("'LOC_INCH251' is invalid (valid range: 0..250)"), "{:?}", e.errors);
+        assert!(
+            e.errors[0]
+                .message
+                .contains("Error: The number of the variable 'LOC_INCH251' is invalid! || Valid range: 0..250"),
+            "{:?}",
+            e.errors
+        );
     }
 
     #[test]
@@ -2697,7 +2741,12 @@ mod tests {
     fn an_unused_loc_inch_number_is_reported_but_written() {
         // Create_Loc_InCh_Defines shows the error after the header was built
         let g = gen(vec![row("LOC_INCH3", "Blink(#LED, #InCh, 1 Sec)")]).unwrap();
-        assert!(g.warnings.iter().any(|w| w.message.contains("'LOC_INCH3' is not defined") && w.row == Some(1)));
+        assert!(g
+            .warnings
+            .iter()
+            .any(
+                |w| w.message.contains("Error: The variable 'LOC_INCH3' in line 2 is not defined") && w.row == Some(1)
+            ));
     }
 
     #[test]
@@ -2808,7 +2857,7 @@ mod tests {
         assert!(h.contains("  int scanOrder[] = {A6,A7};"));
         // More than 10 buttons per analog pin
         let e = first_error(vec![row("SwitchA11", "Blink(#LED, #InCh, 1 Sec)")]);
-        assert!(e.contains("More analog buttons are used than possible"), "{e}");
+        assert!(e.contains("Error: More analog buttons were used than are possible."), "{e}");
     }
 
     #[test]
@@ -2858,9 +2907,10 @@ mod tests {
         let h = header(vec![cfg("// Set_SwitchD_InpLst(2, 3)"), row("SwitchD2", "Blink(#LED, #InCh, 1 Sec)")]);
         assert!(h.contains("SwitchD_Pins[] = { 2,3 };"));
         let e = first_error(vec![cfg("// Set_SwitchD_InpLst(7 99)")]);
-        assert_eq!(e, "The pin '99' is not valid in the 'Set_SwitchD_InpLst(7 99)' command");
+        // Like Excel: the English text has "|" without a line end
+        assert_eq!(e, "Error: The pin '99' is not valid in | 'Set_SwitchD_InpLst(7 99)' command");
         let e = first_error(vec![cfg("// Set_SwitchD_InpLst(7 8 8 9)")]);
-        assert_eq!(e, "The pin '8' is used more than once in the 'Set_SwitchD_InpLst(7 8 8 9)' command");
+        assert_eq!(e, "Error: The pin '8' is used several times in | 'Set_SwitchD_InpLst(7 8 8 9)' command");
         // Like Excel: the second search is in the line with the brackets, so a pin that is first and last
         // (next to "(" and ")") is not found twice
         assert!(gen(vec![cfg("// Set_SwitchD_InpLst(7 8 7)")]).is_ok());
@@ -2884,7 +2934,7 @@ mod tests {
         ]);
         assert!(
             e.starts_with(
-                "The input pin 'A2' of the Arduino is used as input in the two switch functions 'B' and 'D'."
+                "Error: The input pin 'A2' of the Arduino is used as input in the two switch functions 'B' and 'D'."
             ),
             "{e}"
         );
@@ -2893,10 +2943,13 @@ mod tests {
             row("SwitchB1", "Blink(#LED, #InCh, 1 Sec)"),
             row("SwitchD1", "Blink(#LED, #InCh, 1 Sec)"),
         ]);
-        assert!(e.contains("switch function 'D' and at the same time as Clock pin for SwitchB or SwitchC pin"), "{e}");
+        assert!(
+            e.contains("switch functions 'D' and at the same time as the Clock pin for SwitchB or SwitchC pin"),
+            "{e}"
+        );
         assert!(e.contains("'Set_CLK_Pin_Number()'"), "{e}");
         let e = first_error(vec![cfg("// Set_SwitchD_InpLst(6)"), row("SwitchD1", "Blink(#LED, #InCh, 1 Sec)")]);
-        assert!(e.contains("at the same time as LED pin"), "{e}");
+        assert!(e.contains("at the same time as the LED pin"), "{e}");
     }
 
     #[test]
@@ -2910,7 +2963,9 @@ mod tests {
         let e = gen(vec![row("SwitchB251", "Blink(#LED, #InCh, 1 Sec)"), row("Foo", "Blink(#LED, #InCh, 1 Sec)")])
             .unwrap_err();
         assert_eq!(e.errors.len(), 1, "{:?}", e.errors);
-        assert!(e.errors[0].message.contains("'SwitchB251' is invalid (valid range: 1..250)"));
+        assert!(e.errors[0]
+            .message
+            .contains("Error: The number of the variable 'SwitchB251' is invalid! || Valid range: 1..250"));
     }
 
     #[test]
@@ -2932,7 +2987,7 @@ mod tests {
         let mut l = layout(vec![row("1", "Blink(#LED, #InCh, 1 Sec)"), row("SwitchC1", "Blink(#LED, #InCh, 1 Sec)")]);
         l.settings.use_spi = true;
         let e = generate(&l, 0, &Catalog::bundled(), &opts()).unwrap_err();
-        assert!(e.errors[0].message.starts_with("The Arduino pin '10' can't be used"), "{:?}", e.errors);
+        assert!(e.errors[0].message.starts_with("Error: The Arduino pin '10' cannot be used"), "{:?}", e.errors);
     }
 
     #[test]
@@ -2961,7 +3016,7 @@ mod tests {
         assert_eq!(g.get_matching_arg(randmux, line, "DstVarN", 0).as_deref(), Some("Out10"));
         // Fewer arguments than the prototype: Excel's message
         assert_eq!(g.get_matching_arg(random, "Random( OutA, 1)", "DstVar", 0), None);
-        assert!(g.errors[0].message.contains("Error detecting the destination variable"));
+        assert!(g.errors[0].message.contains("Error recognizing target variable in macro"));
     }
 
     #[test]
@@ -2998,7 +3053,7 @@ mod tests {
         assert_eq!(list, " Out1 Out2 Out3 ");
         // Different names: Res stays False
         let (_, _, errors) = dst_vars(&["RandMux(Out1, Led3, SI_1, RM_NORMAL, 1 Sec, 2 Sec)"]);
-        assert!(errors[0].message.contains("Error in the definition of the destination variable(s)"), "{errors:?}");
+        assert!(errors[0].message.contains("Error in the definition of the target variable (s)"), "{errors:?}");
     }
 
     #[test]
@@ -3011,13 +3066,22 @@ mod tests {
         // A name without a number at the end
         let line = "PushButton_w_LED_BL_0_2(#LED, C1, SI_1, Btn, 1, 0, 0, 0, 1 Min, 255, 20)";
         let (_, _, errors) = dst_vars(&[line]);
-        assert!(errors[0].message.contains("'Btn' must end with a number"), "{errors:?}");
+        assert!(
+            errors[0].message.contains("Error: The target variable 'Btn' in line 1 must have a number at the end"),
+            "{errors:?}"
+        );
     }
 
     #[test]
     fn dst_var_set_twice_is_a_warning() {
         let g = gen(vec![row("", "MonoFlop(Door, SI_1, 1 Sec)"), row("", "MonoFlop(Door, SI_1, 2 Sec)")]).unwrap();
-        assert!(g.warnings.iter().any(|w| w.message.contains("set more than once: Door")), "{:?}", g.warnings);
+        assert!(
+            g.warnings
+                .iter()
+                .any(|w| w.message.contains("The following target variables are set several times:\n Door ")),
+            "{:?}",
+            g.warnings
+        );
     }
 
     #[test]

@@ -32,6 +32,14 @@ fn rtrim(s: &str) -> &str {
     s.trim_end_matches(' ')
 }
 
+/// `Get_Language_Str` (M09_Language.bas): a text of the program as the sheet holds it ("|" and a line
+/// end for `vbCr`), and whether it had `vbCrLf`.
+fn sheet_text(desc: &str) -> (String, bool) {
+    let desc = desc.replace("| ", "|");
+    let use_crlf = desc.contains("\r\n");
+    (if use_crlf { desc.replace('\r', "|") } else { desc.replace('\r', "|\n") }, use_crlf)
+}
+
 impl LanguageSheet {
     fn cell(&self, r: usize, c: usize) -> &str {
         self.rows.get(r).and_then(|row| row.get(c)).map_or("", |s| s.as_str())
@@ -56,6 +64,11 @@ impl LanguageSheet {
             .chain(std::iter::once((0, 0)))
             .find(|&(r, c)| !self.is_formula(r, c) && rtrim(self.cell(r, c)) == desc)
             .map(|(r, _)| r)
+    }
+
+    /// Whether `Get_Language_Str` finds `desc` (a text of the program) in the sheet.
+    pub fn contains(&self, desc: &str) -> bool {
+        self.find_row(&sheet_text(desc).0).is_some()
     }
 
     /// `Get_Language_Str_Sub` (M09_Language.bas): the text of `desc`'s row in language `lang` (0 = German,
@@ -85,9 +98,7 @@ impl LanguageSheet {
         if desc.is_empty() {
             return String::new();
         }
-        let mut desc = desc.replace("| ", "|");
-        let use_crlf = desc.contains("\r\n");
-        desc = if use_crlf { desc.replace('\r', "|") } else { desc.replace('\r', "|\n") };
+        let (desc, use_crlf) = sheet_text(desc);
         let res = self.get_sub(&desc, lang);
         if use_crlf {
             res.replace('|', "\r")

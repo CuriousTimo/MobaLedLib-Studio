@@ -26,8 +26,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   compared with the Excel output.
 - The catalog now holds the workbook's hidden `Languages` sheet (1093 rows, German, English, Dutch, French,
   Italian, Spanish, Danish), and `mll-core` looks a text up there as `Get_Language_Str` does: in any cell,
-  row by row, formula cells left out, with English and then the text itself as fallback. Not used yet; the
-  generator messages and the user interface follow.
+  row by row, formula cells left out, with English and then the text itself as fallback.
+
+### Changed
+- The errors and warnings of the header generation are now the Excel tool's own texts, translated through
+  the `Languages` sheet into the language chosen for the effect texts. The texts are taken as Excel shows
+  them, including the flaws of the machine translations (a "|" without a line end, missing spaces). Three
+  texts are not found in the sheet by Excel either and stay German in every language. Row numbers in the
+  texts are the app's row numbers, not Excel's sheet rows. Messages without an Excel counterpart stay
+  English (listed in `mll-core/src/gen_text.rs`).
 
 ## [0.1.0-beta.2] - 2026-11-18
 
