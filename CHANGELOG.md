@@ -16,6 +16,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   `START_VARIABLES`, `START_SEND_INPUTS`, `TOTAL_SEND_INPUTS` and `TOTAL_VARIABLES`, as the Excel tool
   writes them (`Add_Inp_and_DstVars`, `Print_DstVar_List`); a variable set more than once is a warning.
   Not yet compared with the Excel output.
+- Switches: analog buttons (`SwitchA`), CD4017 keyboards (`SwitchB`, `SwitchC`) and main board switches
+  (`SwitchD`), with the pin commands `Set_Switch?_InpLst()`, `Set_CLK_Pin_Number()`, `Set_RST_Pin_Number()`,
+  `Set_LDR_Pin_Number()`, the darkness sensor (`#define READ_LDR`) and `#define SWITCH_DAMPING_FACT`, as
+  `Write_Switches_Header_File_Part_A` writes them (switch defines, `CTR_CHANNELS_…`, `START_SWITCHES_…`,
+  `TOTAL_SWITCHES_…`, `Additional_Setup_Proc()`, `Additional_Loop_Proc()`); pins are checked like Excel does
+  (valid pins of the platform, pin aliases, duplicates between the lists, SPI pins). An error in the first scan
+  now stops the generation, as in Excel. The AnalogScanner library is not installed automatically. Not yet
+  compared with the Excel output.
 
 ## [0.1.0-beta.2] - 2026-11-18
 

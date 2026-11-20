@@ -127,6 +127,67 @@ fn vba_split_space(s: &str) -> Vec<String> {
     s.split(' ').map(|x| x.to_string()).collect()
 }
 
+/// VBA `Split(s, " ")`: an empty string gives no elements (`UBound` = -1).
+fn vba_split(s: &str) -> Vec<&str> {
+    if s.is_empty() {
+        Vec::new()
+    } else {
+        s.split(' ').collect()
+    }
+}
+
+/// VBA `InStr(start, s, sub)` (1-based, 0 if not found).
+fn vba_instr(start: usize, s: &str, sub: &str) -> usize {
+    let hay: Vec<char> = s.chars().collect();
+    let needle: Vec<char> = sub.chars().collect();
+    let start = start.max(1);
+    if needle.is_empty() || start > hay.len() {
+        return 0;
+    }
+    (start - 1..=hay.len().saturating_sub(needle.len()))
+        .find(|&i| hay[i..i + needle.len()] == needle[..])
+        .map_or(0, |i| i + 1)
+}
+
+/// `List_Lenght` (M06_Write_Header_SW.bas): the number of words in a blank separated list.
+fn list_length(list: &str) -> i64 {
+    vba_split(list.trim_matches(' ')).len() as i64
+}
+
+/// `To_Eight` (M06_Write_Header_SW.bas)
+fn to_eight(count: i64) -> i64 {
+    (count + 7) / 8 * 8
+}
+
+/// `Make_sure_that_Channel_is_divisible_by_4` (M06_Write_Header_SW.bas)
+fn make_channel_divisible_by_4(channel: &mut i64) {
+    if *channel % 4 != 0 {
+        *channel += 4 - *channel % 4;
+    }
+}
+
+/// The switch variables of M06_Write_Header_SW.bas (`SwitchA_InpCnt` .. `But_Inp_List_2`), index 0..3 = A..D.
+#[derive(Default)]
+struct Switches {
+    /// `Switch?_InpCnt`: the highest switch number used
+    inp_cnt: [i64; 4],
+    /// `Switch?_InpLst`: the input pins
+    inp_lst: [String; 4],
+    clk_pin: String,
+    rst_pin: String,
+    ldr_pin: String,
+    /// `LED_PINNr_List`
+    led_pin_list: String,
+    read_ldr: bool,
+    /// `Switch_Damping_Fact`: the "#define SWITCH_DAMPING_FACT" line
+    damping_fact: String,
+    /// `CTR_Channels_1/2`, `Channel1/2InpCnt`, `CTR_Cha_Name_1/2`, `But_Inp_List_1/2`
+    ctr_channels: [i64; 2],
+    channel_inp_cnt: [i64; 2],
+    ctr_cha_name: [String; 2],
+    but_inp_list: [String; 2],
+}
+
 /// `ExpandName` (M06_Write_Header.bas): "$Name" becomes "I<includeCount>_Name". Without `include()`
 /// (not supported yet) the include count is always 0.
 fn expand_name(name: &str) -> String {
@@ -343,14 +404,13 @@ fn is_refused(row: &Row) -> bool {
 
 fn unsupported_feature(row: &Row) -> Option<String> {
     let text = &row.macro_text;
-    let checks: [(&str, &str); 9] = [
+    let checks: [(&str, &str); 8] = [
         ("include(", "Including other sheets (include)"),
         ("LED_to_Var(", "LED_to_Var"),
         ("SOUND_CHANNEL_DEFINITON(", "Serial sound channels"),
         ("Mainboard_LED(", "Mainboard_LED"),
         ("Multiplexer", "Multiplexer"),
         ("Set_LED_OutpPinLst(", "Set_LED_OutpPinLst"),
-        ("_InpLst(", "Changing the switch input pins"),
         ("#define ENABLE_STORE_STATUS", "ENABLE_STORE_STATUS"),
         ("DMX", "DMX output"),
     ];
@@ -361,14 +421,6 @@ fn unsupported_feature(row: &Row) -> Option<String> {
     }
     if row.leds.trim() == SERIAL_CHANNEL_PREFIX {
         return Some("Serial sound channels are not supported by MobaLedLib Studio yet".into());
-    }
-    let uses_switch = |s: &str| {
-        ["SwitchA", "SwitchB", "SwitchC", "SwitchD"].iter().any(|sw| {
-            s.match_indices(sw).any(|(i, _)| s[i + sw.len()..].chars().next().is_some_and(|c| c.is_ascii_digit()))
-        })
-    };
-    if uses_switch(text) || uses_switch(&row.address) {
-        return Some("Switches (SwitchA..D) are not supported by MobaLedLib Studio yet".into());
     }
     None
 }
@@ -402,6 +454,7 @@ struct Gen<'a> {
     max_used_loc_in_ch_row: usize,
     /// A row was refused as not supported yet: the variables it would define are unknown
     refused_rows: bool,
+    sw: Switches,
     day_and_night: String,
     channel: i64,
     led_nr: i64,
@@ -452,6 +505,7 @@ impl<'a> Gen<'a> {
             max_used_loc_in_ch: -1,
             max_used_loc_in_ch_row: 0,
             refused_rows: false,
+            sw: Switches::default(),
             day_and_night: String::new(),
             channel: 0,
             led_nr: 0,
@@ -558,11 +612,24 @@ impl<'a> Gen<'a> {
     }
 
     /// `Is_Switch_Var_then_Add_to_Ctr` (M06_Write_Header_SW.bas). 1: a "Switch?<1..250>" name, -1: such a
-    /// name with an invalid number, 0: no switch. The switch counters come with the switches (step 3);
-    /// rows using SwitchA..D are refused before this is reached.
+    /// name with an invalid number, 0: no switch. A switch raises the counter of its keyboard
+    /// (`Switch?_InpCnt`) to its number.
     fn is_switch_var(&mut self, name: &str, row: usize) -> i64 {
         match is_in_nr_string(name, "Switch?", 1, 250) {
-            (1, _) => 1,
+            (1, nr) => {
+                let idx = match name.get(..7) {
+                    Some("SwitchA") => Some(0),
+                    Some("SwitchB") => Some(1),
+                    Some("SwitchC") => Some(2),
+                    Some("SwitchD") => Some(3),
+                    // Excel only prints "Unsupported variable" to the debug window
+                    _ => None,
+                };
+                if let Some(i) = idx {
+                    self.sw.inp_cnt[i] = self.sw.inp_cnt[i].max(nr);
+                }
+                1
+            }
             (-1, _) => {
                 self.err(row, format!("The number of the variable '{name}' is invalid (valid range: 1..250)"));
                 -1
@@ -893,19 +960,138 @@ impl<'a> Gen<'a> {
         res
     }
 
-    /// `First_Scan_of_Data_Rows` (M06_Write_Header_SW.bas), the variable part: before the rows are
-    /// processed, the input variables of every effect line are checked and the variables it sets are noted.
-    /// Rows that are refused as not
-    /// supported yet are skipped: they don't reach the header.
-    fn first_scan(&mut self) {
+    /// `Get_Current_Platform_String` (M30_Tools.bas): a value starting with "=" refers to another parameter.
+    fn platform_str(&self, key: &str) -> String {
+        let v = self.catalog.platform(self.layout.board.platform.id(), key).unwrap_or("").to_string();
+        match v.strip_prefix('=') {
+            Some(other) => self.platform_str(other),
+            None => v,
+        }
+    }
+
+    /// `Get_Current_Platform_Bool` (M30_Tools.bas)
+    fn platform_bool(&self, key: &str) -> bool {
+        let v = self.platform_str(key);
+        v.to_uppercase() == "TRUE" || v == "1"
+    }
+
+    /// `AliasToPin` (M30_Tools.bas): a pin alias of the platform ("PIN_ALIAS_<name>") or the pin itself.
+    fn alias_to_pin(&self, pin: &str) -> String {
+        let alias = self.platform_str(&format!("PIN_ALIAS_{}", pin.to_uppercase()));
+        if alias.is_empty() {
+            pin.to_string()
+        } else {
+            alias
+        }
+    }
+
+    /// `Set_PinNrLst_if_Matching` (M06_Write_Header_SW.bas): if `line` is the command `name`, its pins
+    /// (aliases mapped to the physical pins). `Err` with Excel's message if they are invalid.
+    fn pin_nr_lst_if_matching(
+        &self,
+        line: &str,
+        name: &str,
+        pin_typ: &str,
+        max_cnt: usize,
+    ) -> Result<Option<String>, String> {
+        // On the AM328 the SPI pins are only free if no CAN module is connected
+        let mut valid_pins = String::new();
+        if self.page_id != "CAN" && ["I", "O", "OV", "Pu"].contains(&pin_typ) {
+            valid_pins = self.platform_str("SPI_Pins");
+        }
+        valid_pins += &self.platform_str(&format!("{pin_typ}_Pins"));
+        if !line.starts_with(name) {
+            return Ok(None);
+        }
+        let print_error = || format!("Error reading the pin numbers in line: '{line}'");
+        let Some(p) = line.find(')').filter(|&p| p >= name.len()) else { return Err(print_error()) };
+        let nr_str = line[name.len()..p].replace(',', " ").trim_matches(' ').replace("  ", " ");
+        if nr_str.is_empty() {
+            return Err(print_error());
+        }
+        let nr_arr: Vec<&str> = nr_str.split(' ').collect();
+        if nr_arr.len() > max_cnt {
+            return Err(print_error());
+        }
+        let command = line.replace("// ", "");
+        let mut list = String::new();
+        for one_pin in nr_arr {
+            let pin = self.alias_to_pin(one_pin);
+            if !valid_pins.contains(&format!(" {pin} ")) {
+                return Err(format!("The pin '{one_pin}' is not valid in the '{command}' command"));
+            }
+            // A virtual pin may be used more than once
+            if one_pin != VIRTUAL_CHANNEL {
+                let needle = format!(" {one_pin} ");
+                let p = vba_instr(1, &format!(" {} ", line.replace(['(', ')'], " ")), &needle);
+                if vba_instr(p + 1, &format!(" {line} "), &needle) > 0 {
+                    return Err(format!("The pin '{one_pin}' is used more than once in the '{command}' command"));
+                }
+            }
+            if !list.is_empty() {
+                list.push(' ');
+            }
+            list += &pin;
+        }
+        Ok(Some(list))
+    }
+
+    /// `Init_HeaderFile_Generation_SW` with `First_Scan_of_Data_Rows` (M06_Write_Header_SW.bas): before
+    /// the rows are processed, the switches, the pin commands and the variables of every row are noted.
+    /// Like Excel, the first error stops the generation (`false`). Rows that are refused as not supported
+    /// yet are skipped: they don't reach the header.
+    fn first_scan(&mut self) -> bool {
+        self.sw.led_pin_list = self.platform_str("LED_Pins");
+        self.sw.ldr_pin = self.platform_str("LDR_Pin");
+        for (i, key) in ["SwitchA_Pins", "SwitchB_Pins", "SwitchC_Pins", "SwitchD_Pins"].iter().enumerate() {
+            self.sw.inp_lst[i] = self.platform_str(key);
+        }
+        self.sw.clk_pin = self.platform_str("CLK_Pin");
+        self.sw.rst_pin = self.platform_str("RST_Pin");
+
         let sheet = self.sheet;
         for (r, row) in sheet.rows.iter().enumerate() {
             if !row.enabled || is_refused(row) {
                 continue;
             }
+            if self.is_switch_var(&row.address, r) == -1 {
+                return false;
+            }
             for line in row.macro_text.split('\n') {
-                if !self.add_inp_and_dst_vars(line.trim(), r) {
-                    break;
+                let line = line.trim();
+                // (command, list index or pin, pin type, max count)
+                const PIN_CMDS: [(&str, usize, &str, usize); 7] = [
+                    ("// Set_SwitchA_InpLst(", 0, "A", 5),
+                    ("// Set_SwitchB_InpLst(", 1, "I", 12),
+                    ("// Set_SwitchC_InpLst(", 2, "I", 12),
+                    ("// Set_SwitchD_InpLst(", 3, "Pu", 12),
+                    ("// Set_CLK_Pin_Number(", 4, "O", 1),
+                    ("// Set_RST_Pin_Number(", 5, "O", 1),
+                    ("// Set_LDR_Pin_Number(", 6, "A", 1),
+                ];
+                for (cmd, dest, typ, max) in PIN_CMDS {
+                    match self.pin_nr_lst_if_matching(line, cmd, typ, max) {
+                        Ok(None) => {}
+                        Ok(Some(list)) => match dest {
+                            0..=3 => self.sw.inp_lst[dest] = list,
+                            4 => self.sw.clk_pin = list,
+                            5 => self.sw.rst_pin = list,
+                            _ => self.sw.ldr_pin = list,
+                        },
+                        Err(msg) => {
+                            self.err(r, msg);
+                            return false;
+                        }
+                    }
+                }
+                if line == "#define READ_LDR" {
+                    self.sw.read_ldr = true;
+                }
+                if line.starts_with("#define SWITCH_DAMPING_FACT") {
+                    self.sw.damping_fact = line.to_string();
+                }
+                if !self.add_inp_and_dst_vars(line, r) {
+                    return false;
                 }
             }
         }
@@ -919,6 +1105,142 @@ impl<'a> Gen<'a> {
                 ),
             });
         }
+        if !self.no_duplicates_in_inp_lists() {
+            return false;
+        }
+        self.sw.but_inp_list = ["Unused".into(), "Unused".into()];
+        let [_, b, c, _] = self.sw.inp_cnt;
+        let lst_b = self.sw.inp_lst[1].clone();
+        let lst_c = self.sw.inp_lst[2].clone();
+        let ctr = |cnt: i64, lst: &str| (cnt as f64 / vba_split(lst).len() as f64).ceil() as i64;
+        if b > 0 && c > 0 && !lst_b.is_empty() && !lst_c.is_empty() {
+            self.sw.ctr_cha_name = ["SwitchB".into(), "SwitchC".into()];
+            self.sw.ctr_channels = [ctr(b, &lst_b), ctr(c, &lst_c)];
+            self.sw.but_inp_list = [lst_b, lst_c];
+            self.sw.channel_inp_cnt = [b, c];
+        } else if b > 0 && !lst_b.is_empty() {
+            self.sw.ctr_cha_name = ["SwitchB".into(), "Unused".into()];
+            self.sw.ctr_channels[0] = ctr(b, &lst_b);
+            self.sw.but_inp_list[0] = lst_b;
+            self.sw.channel_inp_cnt[0] = b;
+        } else if c > 0 && !lst_c.is_empty() {
+            self.sw.ctr_cha_name = ["SwitchC".into(), "Unused".into()];
+            self.sw.ctr_channels[0] = ctr(c, &lst_c);
+            self.sw.but_inp_list[0] = lst_c;
+            self.sw.channel_inp_cnt[0] = c;
+        }
+        true
+    }
+
+    /// `No_Duplicates_in_two_InpLists` (M06_Write_Header_SW.bas)
+    fn no_duplicates_in_two_inp_lists(
+        &mut self,
+        letter1: &str,
+        letter2_or_name: &str,
+        inp_lst1: &str,
+        inp_lst2: &str,
+        set_funct2: &str,
+    ) -> bool {
+        let inp_lst2 = format!(" {inp_lst2} ");
+        for pin in vba_split(inp_lst1) {
+            if inp_lst2.contains(&format!(" {pin} ")) {
+                let message = if letter2_or_name.chars().count() == 1 {
+                    format!(
+                        "The input pin '{pin}' of the Arduino is used as input in the two switch functions \
+                         '{letter1}' and '{letter2_or_name}'. The two switch functions can't be used at the same time. \
+                         The pins can be changed with the functions 'Set_Switch?_InpLst()'. \
+                         Attention: The hardware has to be changed too!"
+                    )
+                } else {
+                    format!(
+                        "The input pin '{pin}' of the Arduino is used as input in the switch function '{letter1}' \
+                         and at the same time as {letter2_or_name} pin. The pins can be changed with the functions \
+                         'Set_Switch?_InpLst()' and '{set_funct2}'. Attention: The hardware has to be changed too!"
+                    )
+                };
+                self.errors.push(Diagnostic { row: None, message });
+                return false;
+            }
+        }
+        true
+    }
+
+    /// `Check_CLK_a_RST_Pin_Usage` (M06_Write_Header_SW.bas)
+    fn check_clk_a_rst_pin_usage(&mut self, letter1: &str, inp_lst1: &str) -> bool {
+        if self.sw.inp_cnt[1] > 0 || self.sw.inp_cnt[2] > 0 {
+            let rst = self.sw.rst_pin.clone();
+            let clk = self.sw.clk_pin.clone();
+            let name = "Reset pin for SwitchB or SwitchC";
+            if !self.no_duplicates_in_two_inp_lists(letter1, name, inp_lst1, &rst, "Set_RST_Pin_Number()") {
+                return false;
+            }
+            let name = "Clock pin for SwitchB or SwitchC";
+            if !self.no_duplicates_in_two_inp_lists(letter1, name, inp_lst1, &clk, "Set_CLK_Pin_Number()") {
+                return false;
+            }
+        }
+        true
+    }
+
+    /// `No_Duplicates_in_InpLists` (M06_Write_Header_SW.bas). The checks against `Serial_PinLst` are left
+    /// out: serial sound channels are refused, so the list is always empty.
+    fn no_duplicates_in_inp_lists(&mut self) -> bool {
+        const LED: &str = "Set_LED_OutpPinLst()";
+        const LDR: &str = "Set_LDR_Pin_Number()";
+        let letters = ["A", "B", "C", "D"];
+        let cnt = self.sw.inp_cnt;
+        let lst = self.sw.inp_lst.clone();
+        let led = self.sw.led_pin_list.clone();
+        let ldr = self.sw.ldr_pin.clone();
+        for i in 0..4 {
+            if cnt[i] == 0 {
+                continue;
+            }
+            for j in i + 1..4 {
+                if cnt[j] > 0 && !self.no_duplicates_in_two_inp_lists(letters[i], letters[j], &lst[i], &lst[j], LED) {
+                    return false;
+                }
+            }
+            if !self.no_duplicates_in_two_inp_lists(letters[i], "LED", &lst[i], &led, LED) {
+                return false;
+            }
+            if self.sw.read_ldr && !self.no_duplicates_in_two_inp_lists(letters[i], "LDR", &lst[i], &ldr, LDR) {
+                return false;
+            }
+            if !self.check_clk_a_rst_pin_usage(letters[i], &lst[i]) {
+                return false;
+            }
+        }
+        true
+    }
+
+    /// `PIN_A3_Is_Used` (M06_Write_Header_SW.bas)
+    fn pin_a3_is_used(&self) -> bool {
+        self.sw.channel_inp_cnt[0] > 0 && self.sw.rst_pin == "A3"
+    }
+
+    /// `Check_Switch_Lists_for_SPI_Pins` (M06_Write_Header_SW.bas)
+    fn check_switch_lists_for_spi_pins(&mut self) -> bool {
+        for i in 0..4 {
+            if self.sw.inp_cnt[i] > 0 {
+                let list = format!(" {} ", self.sw.inp_lst[i]);
+                for pin in ["10", "11", "12"] {
+                    if list.contains(&format!(" {pin} ")) {
+                        self.errors.push(Diagnostic {
+                            row: None,
+                            message: format!(
+                                "The Arduino pin '{pin}' can't be used as input or output if DCC, LNet or Selectrix \
+                                 data are read via the SPI bus. Another pin has to be used or the SPI communication has \
+                                 to be disabled on the 'Config' page. Attention: The two Arduinos must then be connected \
+                                 via RS232."
+                            ),
+                        });
+                        return false;
+                    }
+                }
+            }
+        }
+        true
     }
 
     /// `Find_Alias_Name_In_Sheet` (M06_Write_Header_SW.bas): an enabled row whose effect cell is
@@ -1303,17 +1625,181 @@ impl<'a> Gen<'a> {
         self.header_entry(r, addr);
     }
 
-    fn write_switches_part_a(&mut self, out: &mut String) {
-        // Switches are not supported yet: the output variables, the totals and the FastLED setup are written
+    /// `Print_Keyboard_Defines_for_Type` (M06_Write_Header_SW.bas)
+    fn print_keyboard_defines_for_type(
+        out: &mut String,
+        name: &str,
+        inp_cnt: i64,
+        nr: &mut i64,
+        skip_11_16: bool,
+        suppress_fill: bool,
+    ) {
+        for i in 1..=inp_cnt {
+            out.push_str(&format!("{}{}{NL}", pad(&format!("#define {name}{i}"), 32), nr));
+            // VBA: "(i - 1 Mod 16) = 9" is "i - (1 Mod 16) = 9": only after the 10th switch 6 channels are skipped
+            if skip_11_16 && i - 1 == 9 {
+                *nr += 6;
+            }
+            *nr += 1;
+        }
+        // Always multiples of 8 input channels are used
+        if !suppress_fill {
+            let res_cnt = (8 - inp_cnt % 8) % 8;
+            if res_cnt > 0 {
+                *nr += res_cnt;
+                out.push_str(&format!(
+                    "// Reserve channels: {res_cnt} because MobaLedLib_Copy_to_InpStruct always writes multiple of 8 channels{NL}"
+                ));
+            }
+        }
+    }
+
+    /// `Write_Switches_Header_File_Part_A` (M06_Write_Header_SW.bas). `false` (with Excel's message)
+    /// stops the generation.
+    fn write_switches_part_a(&mut self, out: &mut String) -> bool {
         let p = |out: &mut String, s: &str| {
             out.push_str(s);
             out.push_str(NL)
         };
+        let board = self.layout.board.platform.id();
+        let [sw_a, _, _, sw_d] = self.sw.inp_cnt;
+        let [ch1_cnt, ch2_cnt] = self.sw.channel_inp_cnt;
+        let read_ldr = self.sw.read_ldr;
+        let mut min_channel: i64 = 99999999;
+        let mut used_abutton_channels = 0;
+        let mut start_abuttons = 0;
+        if sw_a > 0 || read_ldr {
+            if sw_a > 0 && !self.platform_bool("SupportsAnalogButtons") {
+                self.errors.push(Diagnostic {
+                    row: None,
+                    message: "Analog buttons are not supported on this platform.".into(),
+                });
+                return false;
+            }
+            if read_ldr && !self.platform_bool("SupportsLDR") {
+                self.errors.push(Diagnostic {
+                    row: None,
+                    message: "A light sensor is not supported on this platform.".into(),
+                });
+                return false;
+            }
+            let ana_but_pins: Vec<String> = vba_split(&self.sw.inp_lst[0]).iter().map(|s| s.to_string()).collect();
+            if sw_a > ana_but_pins.len() as i64 * 10 {
+                self.errors.push(Diagnostic {
+                    row: None,
+                    message: "More analog buttons are used than possible. More analog inputs have to be defined to \
+                              read them. This is done with the command 'Set_SwitchA_InpLst()' in the macro column."
+                        .into(),
+                });
+                return false;
+            }
+            p(out, "#ifndef CONFIG_ONLY");
+            p(out, "//*** Analog switches ***");
+            p(out, "");
+            match board {
+                // Excel also makes sure that the AnalogScanner library is installed here
+                "AM328" => {
+                    p(out, "#include <AnalogScanner.h>   // Interrupt driven analog reading library. The library has to be installed manually from https://github.com/merose/AnalogScanner");
+                    p(out, "AnalogScanner scanner;       // Creates an instance of the analog pin scanner.");
+                }
+                "ESP32" => {
+                    p(out, "#include \"AnalogScannerESP32.h\"   ");
+                    p(out, "AnalogScannerESP32 scanner;       // Creates an instance of the analog pin scanner.");
+                }
+                "PICO" => {
+                    p(out, "#include \"AnalogScannerPico.h\"   ");
+                    p(out, "AnalogScannerPico scanner;        // Creates an instance of the analog pin scanner.");
+                }
+                _ => {}
+            }
+            p(out, "");
+            if sw_a > 0 {
+                p(out, "#include <Analog_Buttons10.h>");
+                used_abutton_channels = (sw_a + 9) / 10;
+                for ach in 1..=used_abutton_channels {
+                    p(out, &format!("Analog_Buttons10_C AButtons{ach}({});", ana_but_pins[ach as usize - 1]));
+                }
+                p(out, "");
+            }
+            p(out, "");
+            if !self.sw.damping_fact.is_empty() {
+                p(out, &self.sw.damping_fact);
+                p(out, "");
+            }
+            if read_ldr {
+                p(out, "#include \"Read_LDR.h\"     // Darkness sensor");
+                p(out, "");
+            }
+            p(out, "#endif //CONFIG_ONLY");
+
+            make_channel_divisible_by_4(&mut self.channel);
+            start_abuttons = self.channel;
+            let mut tmp_channel = self.channel;
+            min_channel = min_channel.min(self.channel);
+            Self::print_keyboard_defines_for_type(out, "SwitchA", sw_a, &mut tmp_channel, true, false);
+            p(
+                out,
+                &format!(
+                    "#define START_SWITCHES_A  {}// Define the start number for the first analog switch",
+                    pad(&self.channel.to_string(), 41)
+                ),
+            );
+            // 16 because Copy_Bits_to_InpStructArray() always fills bytes
+            self.channel += used_abutton_channels * 16;
+            p(out, "");
+        }
+
+        let (mut start_switches1, mut start_switches2) = (0, 0);
+        if ch1_cnt > 0 {
+            p(out, "//*** Digital switches ***");
+            p(out, "");
+            make_channel_divisible_by_4(&mut self.channel);
+            start_switches1 = self.channel;
+            min_channel = min_channel.min(self.channel);
+            let name1 = self.sw.ctr_cha_name[0].clone();
+            Self::print_keyboard_defines_for_type(out, &name1, ch1_cnt, &mut self.channel, false, false);
+
+            make_channel_divisible_by_4(&mut self.channel);
+            start_switches2 = self.channel;
+            min_channel = min_channel.min(self.channel);
+            if ch2_cnt > 0 {
+                let name2 = self.sw.ctr_cha_name[1].clone();
+                Self::print_keyboard_defines_for_type(out, &name2, ch2_cnt, &mut self.channel, false, false);
+            }
+            p(out, "");
+        }
+
+        let d_pins = vba_split(&self.sw.inp_lst[3]).len() as i64;
+        if sw_d > d_pins {
+            self.errors.push(Diagnostic {
+                row: None,
+                message: format!(
+                    "More SwitchD switches are used than pins are defined. More inputs have to be defined to read \
+                     them. This is done with the command 'Set_SwitchD_InpLst()' in the macro column. Last possible \
+                     switch: 'SwitchD{d_pins}'"
+                ),
+            });
+            return false;
+        }
+        if sw_d > 0 {
+            p(out, "//*** Direct connected switches ***");
+            p(out, "");
+            min_channel = min_channel.min(self.channel);
+            p(
+                out,
+                &format!(
+                    "#define START_SWITCHES_D  {}// Define the start number for the first mainboard switch",
+                    pad(&self.channel.to_string(), 41)
+                ),
+            );
+            Self::print_keyboard_defines_for_type(out, "SwitchD", sw_d, &mut self.channel, false, true);
+            p(out, "");
+        }
+
         let dst_vars: Vec<String> = self.dst_var_list.split_whitespace().map(|s| s.to_string()).collect();
-        // Min_Channel: the first channel of the switches and variables
-        let min_channel = (!dst_vars.is_empty()).then_some(self.channel);
-        if !dst_vars.is_empty() {
+        if self.dst_var_list != " " {
             // #defines for the output variables (Print_DstVar_List)
+            min_channel = min_channel.min(self.channel);
             p(out, "//*** Output Channels ***");
             p(
                 out,
@@ -1328,31 +1814,138 @@ impl<'a> Gen<'a> {
             }
             p(out, "");
         }
+
+        if sw_d > 0 {
+            p(
+                out,
+                &format!(
+                    "const PROGMEM uint8_t SwitchD_Pins[] = {}// Array of pins which read switches 'D'",
+                    pad(&format!("{{ {} }};", self.sw.inp_lst[3].replace(' ', ",")), 28)
+                ),
+            );
+            p(out, "#define SWITCH_D_INP_CNT sizeof(SwitchD_Pins)");
+            p(out, "");
+        }
+
+        let last_char = |s: &str| s.chars().last().map(|c| c.to_string()).unwrap_or_default();
+        if ch1_cnt > 0 {
+            let sw = &self.sw;
+            p(out, "");
+            p(out, &format!("#define CTR_CHANNELS_1    {}// Number of used counter channels for keyboard 1. Up to 10 if one CD4017 is used, up to 18 if two CD4017 are used, ...", pad(&sw.ctr_channels[0].to_string(), 41)));
+            p(out, &format!("#define CTR_CHANNELS_2    {}// Number of used counter channels for keyboard 2. Up to 10 if one CD4017 is used, up to 18 if two CD4017 are used, ...", pad(&sw.ctr_channels[1].to_string(), 41)));
+            p(
+                out,
+                &format!(
+                    "#define BUTTON_INP_LIST_1 {}// Comma separated list of the button input pins",
+                    pad(&sw.but_inp_list[0].replace(' ', ","), 41)
+                ),
+            );
+            p(
+                out,
+                &format!(
+                    "#define BUTTON_INP_LIST_2 {}// Comma separated list of the button input pins",
+                    pad(&sw.but_inp_list[1].replace(' ', ","), 41)
+                ),
+            );
+            p(
+                out,
+                &format!("#define CLK_PIN           {}// Pin number used for the CD4017 clock", pad(&sw.clk_pin, 41)),
+            );
+            p(
+                out,
+                &format!("#define RESET_PIN         {}// Pin number used for the CD4017 reset", pad(&sw.rst_pin, 41)),
+            );
+            p(out, "");
+            p(out, "#ifndef CONFIG_ONLY");
+            p(out, "#include <Keys_4017.h>                                             // Keyboard library which uses the CD4017 counter to save Arduino pins. Attention: The pins (CLK_PIN, ...) must be defined prior.");
+            p(out, "#endif");
+            p(out, "");
+            p(
+                out,
+                &format!(
+                    "#define START_SWITCHES_1  {}// Define the start number for the first keyboard.",
+                    pad(&start_switches1.to_string(), 41)
+                ),
+            );
+            p(
+                out,
+                &format!(
+                    "#define START_SWITCHES_2  {}// Define the start number for the second keyboard.",
+                    pad(&start_switches2.to_string(), 41)
+                ),
+            );
+            p(
+                out,
+                &format!(
+                    "#define START_SWITCHES_{}  {}// Define the start number for the first keyboard.",
+                    last_char(&sw.ctr_cha_name[0]),
+                    pad(&start_switches1.to_string(), 41)
+                ),
+            );
+        }
+        if ch2_cnt > 0 {
+            p(
+                out,
+                &format!(
+                    "#define START_SWITCHES_{}  {}// Define the start number for the second keyboard.",
+                    last_char(&self.sw.ctr_cha_name[1]),
+                    pad(&start_switches2.to_string(), 41)
+                ),
+            );
+        }
         p(out, "");
-        if let Some(min) = min_channel {
+
+        let total_a = to_eight(used_abutton_channels * 16);
+        let total_1 = to_eight(self.sw.ctr_channels[0] * list_length(&self.sw.but_inp_list[0]));
+        let total_2 = to_eight(self.sw.ctr_channels[1] * list_length(&self.sw.but_inp_list[1]));
+        let total_vars = list_length(&self.dst_var_list);
+        if min_channel != 99999999 {
             p(
                 out,
                 &format!(
                     "#define START_SEND_INPUTS {}// Start address of all switches/variables",
-                    pad(&min.to_string(), 41)
+                    pad(&min_channel.to_string(), 41)
                 ),
             );
             p(
                 out,
                 &format!(
                     "#define TOTAL_SEND_INPUTS {}// Number of used switches/variables",
-                    pad(&dst_vars.len().to_string(), 41)
+                    pad(&(total_a + total_1 + total_2 + sw_d + total_vars).to_string(), 41)
                 ),
             );
         }
-        p(out, &format!("#define TOTAL_SWITCHES_A  {}// Number of used inputs for analog keyboard", pad("0", 41)));
-        p(out, &format!("#define TOTAL_SWITCHES_B  {}// Number of used inputs for keyboard 1", pad("0", 41)));
-        p(out, &format!("#define TOTAL_SWITCHES_C  {}// Number of used inputs for keyboard 2", pad("0", 41)));
-        p(out, &format!("#define TOTAL_SWITCHES_D  {}// Number of used inputs for main board switches", pad("0", 41)));
         p(
             out,
-            &format!("#define TOTAL_VARIABLES   {}// Number of used variables", pad(&dst_vars.len().to_string(), 41)),
+            &format!(
+                "#define TOTAL_SWITCHES_A  {}// Number of used inputs for analog keyboard",
+                pad(&total_a.to_string(), 41)
+            ),
         );
+        let (total_b, total_c) =
+            if last_char(&self.sw.ctr_cha_name[0]) == "B" { (total_1, total_2) } else { (0, total_1) };
+        p(
+            out,
+            &format!(
+                "#define TOTAL_SWITCHES_B  {}// Number of used inputs for keyboard 1",
+                pad(&total_b.to_string(), 41)
+            ),
+        );
+        p(
+            out,
+            &format!(
+                "#define TOTAL_SWITCHES_C  {}// Number of used inputs for keyboard 2",
+                pad(&total_c.to_string(), 41)
+            ),
+        );
+        p(
+            out,
+            &format!(
+                "#define TOTAL_SWITCHES_D  {}// Number of used inputs for main board switches",
+                pad(&sw_d.to_string(), 41)
+            ),
+        );
+        p(out, &format!("#define TOTAL_VARIABLES   {}// Number of used variables", pad(&total_vars.to_string(), 41)));
 
         let platform = self.layout.board.platform.id();
         let pins = vba_split_space(self.catalog.platform(platform, "LED_Pins").unwrap_or(" 6 "));
@@ -1397,6 +1990,121 @@ impl<'a> Gen<'a> {
         p(out, "  FastLED.setDither(DISABLE_DITHER);       // avoid sending slightly modified brightness values");
         p(out, "/*End*/");
         p(out, "");
+
+        // Additional setup proc
+        if sw_a > 0 || read_ldr || ch1_cnt > 0 || sw_d > 0 {
+            p(out, "#define USE_ADDITIONAL_SETUP_PROC                                  // Activate the usage of the Additional_Setup_Proc()");
+            p(out, "");
+            p(out, "//--------------------------");
+            p(out, "void Additional_Setup_Proc()");
+            p(out, "//--------------------------");
+            p(out, "{");
+            if sw_a > 0 || read_ldr {
+                let ldr = self.sw.ldr_pin.clone();
+                p(out, "#ifndef CONFIG_ONLY");
+                let mut pin_list = String::new();
+                if sw_a > 0 {
+                    pin_list = format!("{},", self.sw.inp_lst[0].trim_matches(' ').replace(' ', ","));
+                }
+                if read_ldr {
+                    pin_list += &format!("{ldr},");
+                }
+                pin_list.pop();
+                p(out, &format!("  int scanOrder[] = {{{pin_list}}};"));
+                p(out, "  const int SCAN_COUNT = sizeof(scanOrder) / sizeof(scanOrder[0]);");
+                if board == "AM328" {
+                    p(out, "");
+                    if read_ldr {
+                        p(out, &format!("  Init_DarknessSensor({ldr}, 50, SCAN_COUNT); // Attention: The analogRead() function can't be used together with the darkness sensor !"));
+                        p(out, &format!("  scanner.setCallback({ldr}, Darkness_Detection_Callback);"));
+                    }
+                    p(out, "  scanner.setScanOrder(SCAN_COUNT, scanOrder);");
+                    p(out, "  scanner.beginScanning();");
+                } else if board == "ESP32" || board == "PICO" {
+                    p(out, "  scanner.setScanPins(SCAN_COUNT, scanOrder);");
+                    if read_ldr {
+                        p(out, &format!("  Init_DarknessSensor({ldr}, 50, 50); // Attention: The analogRead() function can't be used together with the darkness sensor !"));
+                        p(out, &format!("  scanner.setCallback({ldr}, Darkness_Detection_Callback);"));
+                    }
+                }
+                p(out, "#endif");
+                p(out, "");
+            }
+            if ch1_cnt > 0 {
+                p(out, "#ifndef CONFIG_ONLY");
+                p(out, "  Keys_4017_Setup(); // Initialize the keyboard scanning process");
+                p(out, "#endif");
+            }
+            if sw_d > 0 {
+                p(out, "");
+                p(out, "  for (uint8_t i = 0; i < SWITCH_D_INP_CNT; i++)");
+                p(out, "    pinMode(pgm_read_byte_near(&SwitchD_Pins[i]), INPUT_PULLUP);");
+            }
+            p(out, "}");
+            p(out, "");
+        }
+
+        // Additional_Loop_Proc()
+        if sw_a > 0 || ch1_cnt > 0 || sw_d > 0 {
+            p(out, "/****************************/");
+            p(out, "#define Additional_Loop_Proc() \\");
+            p(out, "/****************************/ \\");
+            p(out, "{                              \\");
+            if sw_a > 0 {
+                let mut act_start_abuttons = start_abuttons;
+                p(out, "  uint16_t Button;             \\");
+                for ach in 1..=used_abutton_channels {
+                    let line = format!(
+                        "  Button = AButtons{ach}.Get(); MobaLedLib_Copy_to_InpStruct((uint8_t*)&Button, 2, {act_start_abuttons});"
+                    );
+                    p(out, &format!("{}\\", pad(&line, 89)));
+                    act_start_abuttons += 16;
+                }
+            }
+            if !self.store_values_txt.is_empty() {
+                // Add_Set_Input_Loop_for_Keys (Store_ValuesTxt_Used)
+                for nr in [1, 2] {
+                    if self.sw.channel_inp_cnt[nr - 1] > 0 {
+                        for line in [
+                            format!("  uint8_t channel{nr} = START_SWITCHES_{nr};"),
+                            format!("  for (int j=0;j<KEYS_ARRAY_BYTE_SIZE_{nr};j++)"),
+                            "    {".into(),
+                            format!("    uint8_t tmp = Keys_Array_{nr}[j];"),
+                            "    for (int i=0;i<8;i++)".into(),
+                            "      {".into(),
+                            format!("      MobaLedLib.Set_Input(channel{nr}++, tmp & 0x01);"),
+                            "      tmp = tmp >> 1;".into(),
+                            "      }".into(),
+                            "    }".into(),
+                        ] {
+                            p(out, &format!("{} \\", pad(&line, 70)));
+                        }
+                    }
+                }
+            } else {
+                if ch1_cnt > 0 {
+                    p(
+                        out,
+                        "  MobaLedLib_Copy_to_InpStruct(Keys_Array_1, KEYS_ARRAY_BYTE_SIZE_1, START_SWITCHES_1);  \\",
+                    );
+                }
+                if ch2_cnt > 0 {
+                    p(
+                        out,
+                        "  MobaLedLib_Copy_to_InpStruct(Keys_Array_2, KEYS_ARRAY_BYTE_SIZE_2, START_SWITCHES_2);  \\",
+                    );
+                }
+            }
+            if sw_d > 0 {
+                p(out, &format!("  for (uint8_t i = 0; i < {sw_d}; i++) \\"));
+                p(
+                    out,
+                    "      MobaLedLib.Set_Input(SwitchD1 + i, !digitalRead(pgm_read_byte_near(&SwitchD_Pins[i])));\\",
+                );
+            }
+            p(out, "}");
+        }
+        true
     }
 
     fn write(&mut self, opts: &GenOptions) -> String {
@@ -1517,7 +2225,11 @@ impl<'a> Gen<'a> {
                 p!("#define USE_SPI_COM                    // Use the SPI bus for the communication in addition to the RS232 if J13 is closed. If no DCC commands are configured the A1 pin of the DCC Arduino is disabled");
             }
             if platform.id() == "AM328" {
-                p!("#define LED_HEARTBEAT_PIN A3           // Don't use the internal heartbeat LED because the D13 pins between LED and DCC arduin are connected together");
+                if self.pin_a3_is_used() {
+                    p!("#define LED_HEARTBEAT_PIN -1           // Disable the heartbeat pin because it's used for the SwitchB or SwitchC");
+                } else {
+                    p!("#define LED_HEARTBEAT_PIN A3           // Don't use the internal heartbeat LED because the D13 pins between LED and DCC arduin are connected together");
+                }
             }
         }
         if s.gen_button_release_com == 0 || self.sx {
@@ -1530,6 +2242,9 @@ impl<'a> Gen<'a> {
         }
 
         if !self.ext_addr_txt.is_empty() {
+            if s.use_spi && !self.check_switch_lists_for_spi_pins() {
+                return o;
+            }
             p!("#define USE_EXT_ADDR");
             if matches!(self.sheet.protocol, Protocol::Dcc | Protocol::Selectrix | Protocol::LNet) {
                 p!("#define USE_RS232_OR_SPI_AS_INPUT 1     // Use the RS232 or SPI Input to read DCC/LNet/SX commands from the second Arduino and from the PC (The SPI is only used if enabled with USE_SPI_COM)");
@@ -1574,7 +2289,9 @@ impl<'a> Gen<'a> {
         p!("// Input channel defines for local inputs and expert users");
         p!("{}", self.in_ch_txt);
         p!("");
-        self.write_switches_part_a(&mut o);
+        if !self.write_switches_part_a(&mut o) {
+            return o;
+        }
         p!("{}", self.day_and_night);
         p!("");
         p!("//*******************************************************************");
@@ -1679,7 +2396,9 @@ pub fn generate(
     }
     let mut g = Gen::new(layout, sh, catalog);
     // Create_HeaderFile: Init_HeaderFile_Generation_SW (first scan), the rows, Check_Detected_Variables
-    g.first_scan();
+    if !g.first_scan() {
+        return Err(GenerateError { errors: g.errors });
+    }
     for r in 0..sh.rows.len() {
         g.process_row(r);
     }
@@ -1792,8 +2511,8 @@ mod tests {
     fn unsupported_features_are_reported() {
         let l = layout(vec![Row {
             enabled: true,
-            address: "SwitchD1".into(),
-            macro_text: "Const(#LED, C1, #InCh, 0, 255)".into(),
+            address: "5".into(),
+            macro_text: "include(Other)".into(),
             leds: "C1-1".into(),
             in_cnt: 1,
             ..Row::default()
@@ -2006,6 +2725,224 @@ mod tests {
             g.add_inp_and_dst_vars(line, 0);
         }
         (g.dst_var_list.clone(), g.multi_set_dst_var_list.clone(), g.errors.clone())
+    }
+
+    // ---- Switches (M06_Write_Header_SW.bas: First_Scan_of_Data_Rows, Set_PinNrLst_if_Matching,
+    // No_Duplicates_in_InpLists, Init_HeaderFile_Generation_SW, Write_Switches_Header_File_Part_A)
+
+    /// A row with only a configuration line (no LED, no input)
+    fn cfg(macro_text: &str) -> Row {
+        Row { enabled: true, macro_text: macro_text.into(), ..Row::default() }
+    }
+
+    fn header(rows: Vec<Row>) -> String {
+        match gen(rows) {
+            Ok(g) => g.header.replace("\r\n", "\n"),
+            Err(e) => panic!("{:?}", e.errors),
+        }
+    }
+
+    fn first_error(rows: Vec<Row>) -> String {
+        gen(rows).unwrap_err().errors[0].message.clone()
+    }
+
+    #[test]
+    fn switches_a_b_d_and_a_variable() {
+        // AM328: SwitchA_Pins A6, SwitchB_Pins A2, SwitchD_Pins 7 8 9, CLK A0, RST A3
+        let h = header(vec![
+            row("SwitchB3", "Blink(#LED, #InCh, 1 Sec)"),
+            row("SwitchD2", "Blink(#LED, #InCh, 1 Sec)"),
+            // A switch used as an argument counts too (Valid_Var_Name)
+            row("", "MonoFlop(Door, SwitchA7, 1 Sec)"),
+        ]);
+        let expected = [
+            "#ifndef CONFIG_ONLY\n//*** Analog switches ***\n\n#include <AnalogScanner.h>",
+            "#include <Analog_Buttons10.h>\nAnalog_Buttons10_C AButtons1(A6);\n\n\n#endif //CONFIG_ONLY\n",
+            "#define SwitchA7                6\n// Reserve channels: 1 because MobaLedLib_Copy_to_InpStruct always writes multiple of 8 channels\n#define START_SWITCHES_A  0 ",
+            // 16 channels per analog button bank, then divisible by 4
+            "//*** Digital switches ***\n\n#define SwitchB1                16\n",
+            "#define SwitchB3                18\n// Reserve channels: 5 because",
+            // SwitchD is not filled to 8
+            "#define START_SWITCHES_D  24 ",
+            "#define SwitchD2                25\n\n//*** Output Channels ***\n#define START_VARIABLES   26 ",
+            "#define Door                    26\n",
+            "const PROGMEM uint8_t SwitchD_Pins[] = { 7,8,9 };                  // Array of pins which read switches 'D'\n#define SWITCH_D_INP_CNT sizeof(SwitchD_Pins)\n",
+            "#define CTR_CHANNELS_1    3 ",
+            "#define CTR_CHANNELS_2    0 ",
+            "#define BUTTON_INP_LIST_1 A2 ",
+            "#define BUTTON_INP_LIST_2 Unused ",
+            "#define CLK_PIN           A0 ",
+            "#define RESET_PIN         A3 ",
+            "#define START_SWITCHES_1  16 ",
+            "#define START_SWITCHES_2  24 ",
+            "#define START_SWITCHES_B  16 ",
+            "#define START_SEND_INPUTS 0 ",
+            // 16 + To_Eight(3 * 1) + 2 + 1
+            "#define TOTAL_SEND_INPUTS 27 ",
+            "#define TOTAL_SWITCHES_A  16 ",
+            "#define TOTAL_SWITCHES_B  8 ",
+            "#define TOTAL_SWITCHES_C  0 ",
+            "#define TOTAL_SWITCHES_D  2 ",
+            "#define TOTAL_VARIABLES   1 ",
+            "{\n#ifndef CONFIG_ONLY\n  int scanOrder[] = {A6};\n  const int SCAN_COUNT = sizeof(scanOrder) / sizeof(scanOrder[0]);\n\n  scanner.setScanOrder(SCAN_COUNT, scanOrder);\n  scanner.beginScanning();\n#endif\n\n#ifndef CONFIG_ONLY\n  Keys_4017_Setup();",
+            "  for (uint8_t i = 0; i < SWITCH_D_INP_CNT; i++)\n    pinMode(pgm_read_byte_near(&SwitchD_Pins[i]), INPUT_PULLUP);\n}\n",
+            "  Button = AButtons1.Get(); MobaLedLib_Copy_to_InpStruct((uint8_t*)&Button, 2, 0);       \\\n",
+            "  MobaLedLib_Copy_to_InpStruct(Keys_Array_1, KEYS_ARRAY_BYTE_SIZE_1, START_SWITCHES_1);  \\\n",
+            "  for (uint8_t i = 0; i < 2; i++) \\\n      MobaLedLib.Set_Input(SwitchD1 + i, !digitalRead(pgm_read_byte_near(&SwitchD_Pins[i])));\\\n}\n",
+            "  Blink(1, SwitchB3, 1 Sec) ",
+        ];
+        for e in expected {
+            assert!(h.contains(e), "missing {e:?}");
+        }
+        assert!(!h.contains("LED_HEARTBEAT_PIN"));
+    }
+
+    #[test]
+    fn analog_switches_skip_after_the_tenth() {
+        // "(i - 1 Mod 16) = 9" is "i - 1 = 9" in VBA: the 6 channels are only skipped after SwitchA10
+        let h = header(vec![cfg("// Set_SwitchA_InpLst(A6 A7)"), row("SwitchA12", "Blink(#LED, #InCh, 1 Sec)")]);
+        assert!(h.contains("#define SwitchA10               9\n#define SwitchA11               16\n#define SwitchA12               17\n// Reserve channels: 4"));
+        assert!(h.contains("Analog_Buttons10_C AButtons1(A6);\nAnalog_Buttons10_C AButtons2(A7);"));
+        assert!(h.contains("  Button = AButtons2.Get(); MobaLedLib_Copy_to_InpStruct((uint8_t*)&Button, 2, 16);"));
+        assert!(h.contains("#define TOTAL_SWITCHES_A  32 "));
+        assert!(h.contains("  int scanOrder[] = {A6,A7};"));
+        // More than 10 buttons per analog pin
+        let e = first_error(vec![row("SwitchA11", "Blink(#LED, #InCh, 1 Sec)")]);
+        assert!(e.contains("More analog buttons are used than possible"), "{e}");
+    }
+
+    #[test]
+    fn keyboards_b_and_c() {
+        // SwitchC_Pins "2 10 11 12 A5": 7 switches need 2 counter channels
+        let h =
+            header(vec![row("SwitchB2", "Blink(#LED, #InCh, 1 Sec)"), row("SwitchC7", "Blink(#LED, #InCh, 1 Sec)")]);
+        for e in [
+            "#define SwitchB2                1\n// Reserve channels: 6",
+            "#define SwitchC1                8\n",
+            "#define CTR_CHANNELS_1    2 ",
+            "#define CTR_CHANNELS_2    2 ",
+            "#define BUTTON_INP_LIST_2 2,10,11,12,A5 ",
+            "#define START_SWITCHES_B  0 ",
+            "#define START_SWITCHES_C  8 ",
+            "#define TOTAL_SWITCHES_B  8 ",
+            "#define TOTAL_SWITCHES_C  16 ",
+            "  MobaLedLib_Copy_to_InpStruct(Keys_Array_2, KEYS_ARRAY_BYTE_SIZE_2, START_SWITCHES_2);  \\",
+        ] {
+            assert!(h.contains(e), "missing {e:?}");
+        }
+        // SwitchC alone is keyboard 1; its total is written as TOTAL_SWITCHES_C
+        let h = header(vec![row("SwitchC3", "Blink(#LED, #InCh, 1 Sec)")]);
+        assert!(h.contains("#define START_SWITCHES_C  0 "));
+        assert!(h.contains("#define TOTAL_SWITCHES_B  0 "));
+        assert!(h.contains("#define TOTAL_SWITCHES_C  8 "));
+    }
+
+    #[test]
+    fn read_ldr_and_damping() {
+        let h = header(vec![cfg("#define READ_LDR"), cfg("#define SWITCH_DAMPING_FACT 0.5")]);
+        assert!(h.contains("#ifndef CONFIG_ONLY\n//*** Analog switches ***\n\n#include <AnalogScanner.h>"));
+        assert!(!h.contains("Analog_Buttons10"));
+        assert!(h.contains("\n#define SWITCH_DAMPING_FACT 0.5\n\n#include \"Read_LDR.h\"     // Darkness sensor\n\n#endif //CONFIG_ONLY\n"));
+        assert!(h.contains("  int scanOrder[] = {A7};"));
+        assert!(h.contains("  Init_DarknessSensor(A7, 50, SCAN_COUNT);"));
+        assert!(h.contains("  scanner.setCallback(A7, Darkness_Detection_Callback);"));
+        // No switches: no loop proc
+        assert!(!h.contains("Additional_Loop_Proc"));
+    }
+
+    #[test]
+    fn set_pin_lists() {
+        // A pin alias with an indirection: PIN_ALIAS_J1_P2 = "=LDR_Pin" = A7
+        let h = header(vec![cfg("#define READ_LDR"), cfg("// Set_LDR_Pin_Number(J1_P2)")]);
+        assert!(h.contains("  int scanOrder[] = {A7};"));
+        let h = header(vec![cfg("// Set_SwitchD_InpLst(2, 3)"), row("SwitchD2", "Blink(#LED, #InCh, 1 Sec)")]);
+        assert!(h.contains("SwitchD_Pins[] = { 2,3 };"));
+        let e = first_error(vec![cfg("// Set_SwitchD_InpLst(7 99)")]);
+        assert_eq!(e, "The pin '99' is not valid in the 'Set_SwitchD_InpLst(7 99)' command");
+        let e = first_error(vec![cfg("// Set_SwitchD_InpLst(7 8 8 9)")]);
+        assert_eq!(e, "The pin '8' is used more than once in the 'Set_SwitchD_InpLst(7 8 8 9)' command");
+        // Like Excel: the second search is in the line with the brackets, so a pin that is first and last
+        // (next to "(" and ")") is not found twice
+        assert!(gen(vec![cfg("// Set_SwitchD_InpLst(7 8 7)")]).is_ok());
+        for bad in ["// Set_CLK_Pin_Number(A0 A1)", "// Set_CLK_Pin_Number(A0", "// Set_CLK_Pin_Number()"] {
+            assert!(first_error(vec![cfg(bad)]).starts_with("Error reading the pin numbers in line"), "{bad}");
+        }
+        // The SPI pins are only valid if the page isn't CAN
+        let mut l = layout(vec![cfg("// Set_SwitchD_InpLst(10)")]);
+        assert!(generate(&l, 0, &Catalog::bundled(), &opts()).is_ok());
+        l.sheets[0].protocol = Protocol::Can;
+        let e = generate(&l, 0, &Catalog::bundled(), &opts()).unwrap_err();
+        assert!(e.errors[0].message.contains("The pin '10' is not valid"), "{:?}", e.errors);
+    }
+
+    #[test]
+    fn duplicate_pins() {
+        let e = first_error(vec![
+            cfg("// Set_SwitchD_InpLst(A2)"),
+            row("SwitchB1", "Blink(#LED, #InCh, 1 Sec)"),
+            row("SwitchD1", "Blink(#LED, #InCh, 1 Sec)"),
+        ]);
+        assert!(
+            e.starts_with(
+                "The input pin 'A2' of the Arduino is used as input in the two switch functions 'B' and 'D'."
+            ),
+            "{e}"
+        );
+        let e = first_error(vec![
+            cfg("// Set_SwitchD_InpLst(A0)"),
+            row("SwitchB1", "Blink(#LED, #InCh, 1 Sec)"),
+            row("SwitchD1", "Blink(#LED, #InCh, 1 Sec)"),
+        ]);
+        assert!(e.contains("switch function 'D' and at the same time as Clock pin for SwitchB or SwitchC pin"), "{e}");
+        assert!(e.contains("'Set_CLK_Pin_Number()'"), "{e}");
+        let e = first_error(vec![cfg("// Set_SwitchD_InpLst(6)"), row("SwitchD1", "Blink(#LED, #InCh, 1 Sec)")]);
+        assert!(e.contains("at the same time as LED pin"), "{e}");
+    }
+
+    #[test]
+    fn more_switch_d_than_pins() {
+        let e = first_error(vec![row("SwitchD4", "Blink(#LED, #InCh, 1 Sec)")]);
+        assert!(e.ends_with("Last possible switch: 'SwitchD3'"), "{e}");
+    }
+
+    #[test]
+    fn an_invalid_switch_number_stops_the_generation() {
+        let e = gen(vec![row("SwitchB251", "Blink(#LED, #InCh, 1 Sec)"), row("Foo", "Blink(#LED, #InCh, 1 Sec)")])
+            .unwrap_err();
+        assert_eq!(e.errors.len(), 1, "{:?}", e.errors);
+        assert!(e.errors[0].message.contains("'SwitchB251' is invalid (valid range: 1..250)"));
+    }
+
+    #[test]
+    fn platform_without_analog_buttons() {
+        let mut c = Catalog::bundled();
+        c.platforms.get_mut("AM328").unwrap().insert("SupportsAnalogButtons".into(), "false".into());
+        let e = generate(&layout(vec![row("SwitchA1", "Blink(#LED, #InCh, 1 Sec)")]), 0, &c, &opts()).unwrap_err();
+        assert_eq!(e.errors[0].message, "Analog buttons are not supported on this platform.");
+    }
+
+    #[test]
+    fn heartbeat_pin_and_spi_pins() {
+        // PIN_A3_Is_Used: the CD4017 reset is on A3
+        let mut l = layout(vec![row("SwitchB1", "Blink(#LED, #InCh, 1 Sec)")]);
+        l.sheets[0].protocol = Protocol::Can;
+        let h = generate(&l, 0, &Catalog::bundled(), &opts()).unwrap().header;
+        assert!(h.contains("#define LED_HEARTBEAT_PIN -1           // Disable the heartbeat pin because it's used for the SwitchB or SwitchC"));
+        // Check_Switch_Lists_for_SPI_Pins: SwitchC_Pins of the AM328 contain 10 11 12
+        let mut l = layout(vec![row("1", "Blink(#LED, #InCh, 1 Sec)"), row("SwitchC1", "Blink(#LED, #InCh, 1 Sec)")]);
+        l.settings.use_spi = true;
+        let e = generate(&l, 0, &Catalog::bundled(), &opts()).unwrap_err();
+        assert!(e.errors[0].message.starts_with("The Arduino pin '10' can't be used"), "{:?}", e.errors);
+    }
+
+    #[test]
+    fn stored_keys_use_set_input() {
+        // Add_Set_Input_Loop_for_Keys when values are stored in the EEPROM
+        let h = header(vec![row("1", "Blink(#LED, #InCh, 1 Sec)"), row("SwitchB1", "Blink(#LED, #InCh, 1 Sec)")]);
+        assert!(h.contains("{ IS_TOGGLE"));
+        assert!(h.contains(&format!("{} \\\n", pad("  uint8_t channel1 = START_SWITCHES_1;", 70))));
+        assert!(h.contains("      MobaLedLib.Set_Input(channel1++, tmp & 0x01);"));
+        assert!(!h.contains("MobaLedLib_Copy_to_InpStruct(Keys_Array_1"));
     }
 
     #[test]

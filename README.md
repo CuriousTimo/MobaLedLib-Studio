@@ -75,6 +75,10 @@ The effect catalog in [`data/catalog.json`](data/catalog.json) (285 effects, 169
   `Set_Start_Values()`, the EEPROM `Store_Values[]` table and counters, `SETUP_FASTLED()` and the configuration array
 - DCC address offset, Selectrix channel/bit addresses, duplicate address detection, Red/Green button pairs
 - `DayAndNightTimer()`, `#LocInCh`, `// Define Input()` aliases, `House()` timing settings
+- Variables as address and effects that set variables (`DstVar`)
+- Switches: analog buttons (`SwitchA`), CD4017 keyboards (`SwitchB`, `SwitchC`), main board switches (`SwitchD`),
+  the pin commands (`Set_Switch?_InpLst()`, `Set_CLK_Pin_Number()`, `Set_RST_Pin_Number()`, `Set_LDR_Pin_Number()`)
+  and the darkness sensor (`#define READ_LDR`) (port of `M06_Write_Header_SW.bas`)
 - Platform limits from `Platform_Parameters` (LED pins, maximum LEDs, supported protocols)
 - Live validation: problems are shown on the row they belong to
 - View and copy the generated header
@@ -95,14 +99,14 @@ Rows that use one of these features are reported as an error instead of producin
 
 | Feature of the Excel tool | Status |
 |---|---|
-| Switches and buttons on the main board and keyboards (`SwitchA`…`SwitchD`, CD4017 keyboards) | missing |
-| Return messages (`RM …`) in the address column (variables as address and effects that set variables are supported) | missing |
+| Return messages (`RM …`) in the address column (variables and switches as address are supported) | missing |
 | `Mainboard_LED()` | missing |
 | Including other sheets (`include()`) | missing |
 | Multiplexer dialog and `Multiplexer…` macros | missing |
 | `LED_to_Var()` | missing |
 | Serial sound channels (`S` in the LEDs column, `SOUND_CHANNEL_DEFINITON`) | missing |
-| DMX512 output, virtual LED channels, `Set_LED_OutpPinLst()` and other `Set_…_InpLst()` pin lists | missing |
+| DMX512 output, virtual LED channels and `Set_LED_OutpPinLst()` | missing |
+| Installing the AnalogScanner library for analog buttons on the Nano/Uno (Excel downloads it; install it in the Arduino IDE) | missing |
 | `#define ENABLE_STORE_STATUS` in the macro column | missing |
 | `Logic()` in the effect dialog (it can be typed into the expert fields) | missing |
 | ESP32 extensions (`EX.…` macros) | missing |
@@ -117,7 +121,7 @@ Rows that use one of these features are reported as an error instead of producin
 ### Planned
 
 1. Verify the generated header against the Excel tool with real layouts (see below), then remove "untested"
-2. Switches (`SwitchA`…`D`), variables as addresses and effects that set variables (`DstVar`)
+2. Switches (`SwitchA`…`D`), variables as addresses and effects that set variables (`DstVar`) (done, not released yet)
 3. Uploading the DCC/Selectrix receiver program
 4. Simulator that shows the LEDs without hardware
 5. Sound channels, multiplexer, include, DMX
