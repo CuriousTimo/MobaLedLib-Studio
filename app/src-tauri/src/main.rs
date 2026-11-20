@@ -2,6 +2,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod arduino;
+mod simulate;
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -215,6 +216,29 @@ async fn build_and_upload(
         .map_err(|e| e.to_string())?
 }
 
+/// Start the simulator for a sheet. The LEDs arrive as "sim-leds" events.
+#[tauri::command]
+async fn sim_start(
+    app: AppHandle,
+    layout: Layout,
+    sheet: usize,
+    lang: Option<String>,
+) -> Result<simulate::Started, String> {
+    let header =
+        codegen::generate(&layout, sheet, catalog(), &gen_options(lang.as_deref())).map_err(|e| e.to_string())?.header;
+    tauri::async_runtime::spawn_blocking(move || simulate::start(&app, &header)).await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+fn sim_set_input(channel: u8, on: bool) {
+    simulate::set_input(channel, on);
+}
+
+#[tauri::command]
+fn sim_stop() {
+    simulate::stop();
+}
+
 /// Set by the frontend; while true, closing the window asks the frontend first.
 static DIRTY: AtomicBool = AtomicBool::new(false);
 
@@ -298,6 +322,7 @@ fn build_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
         &[
             &item("header", "Show Generated Code", Some("CmdOrCtrl+Shift+H"))?,
             &item("upload", "Upload…", Some("CmdOrCtrl+U"))?,
+            &item("simulate", "Simulate…", None)?,
         ],
     )?;
     let window = Submenu::with_items(
@@ -449,6 +474,9 @@ fn main() {
             arduino_status,
             list_ports,
             build_and_upload,
+            sim_start,
+            sim_set_input,
+            sim_stop,
             set_dirty,
             close_window,
             effect_menu,

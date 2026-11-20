@@ -760,6 +760,7 @@ function renderModal() {
     header: headerHtml,
     settings: settingsHtml,
     sheet: newSheetHtml,
+    simulate: simulateHtml,
   }[m.type]();
   const kept = m.type === 'picker' ? pickerScroll(m) : null;
   root.innerHTML = `<div class="backdrop" data-act="backdrop">${html}</div>`;
@@ -1161,6 +1162,57 @@ async function runUpload(withUpload) {
   if (state.modal === m) renderModal();
 }
 
+// ----- simulate
+
+/** The LEDs of the sheet run in MobaLedLib's own engine (compiled into the app); the inputs are switches. */
+async function openSimulate() {
+  const m = { type: 'simulate', starting: true, error: null, leds: [], inputs: [], on: {} };
+  state.modal = m;
+  renderModal();
+  const offLeds = await listen('sim-leds', (ev) => {
+    m.leds = ev.payload;
+    if (state.modal !== m) return;
+    document.querySelectorAll('#sim-leds .led').forEach((d, k) => {
+      const [r, g, b] = [m.leds[3 * k] || 0, m.leds[3 * k + 1] || 0, m.leds[3 * k + 2] || 0];
+      d.style.background = `rgb(${r},${g},${b})`;
+    });
+  });
+  const offError = await listen('sim-error', (ev) => { m.error = ev.payload; if (state.modal === m) renderModal(); });
+  m.unlisten = () => { offLeds(); offError(); invoke('sim_stop'); };
+  try {
+    const st = await invoke('sim_start', { layout: state.layout, sheet: state.sheet, lang: state.lang });
+    m.numLeds = st.num_leds;
+    m.inputs = st.inputs;
+    // Closed while it was compiling: the simulation started after the stop
+    if (state.modal !== m) invoke('sim_stop');
+  } catch (e) {
+    m.error = e;
+  }
+  m.starting = false;
+  if (state.modal === m) renderModal();
+}
+
+function simulateHtml() {
+  const m = state.modal;
+  let body;
+  if (m.error) body = `<div class="notice bad" style="white-space:pre-wrap"><div>${esc(errText(m.error))}</div></div>`;
+  else if (m.starting) body = '<div class="muted">Compiling the configuration…</div>';
+  else {
+    const leds = Array.from({ length: m.numLeds }, (_, k) => `<div class="led" title="LED ${k}" style="width:18px;height:18px;border-radius:50%;border:1px solid var(--line, #8884);background:#000"></div>`).join('');
+    const inputs = m.inputs.map((inp) => `<button class="btn ${m.on[inp.channel] ? 'primary' : ''}" data-act="sim-input" data-i="${inp.channel}">${esc(inp.comment && inp.comment !== '"' ? inp.comment : inp.name)} · ${m.on[inp.channel] ? 'On' : 'Off'}</button>`).join('');
+    body = `<div id="sim-leds" style="display:flex;flex-wrap:wrap;gap:6px">${leds}</div>
+      ${m.inputs.length ? `<div style="display:flex;flex-wrap:wrap;gap:6px">${inputs}</div>` : '<div class="muted">This sheet has no inputs.</div>'}`;
+  }
+  return `
+    <div class="modal" role="dialog" aria-modal="true" aria-label="Simulate" style="width:min(900px,100%)">
+      <div class="modal-head"><h2>Simulate</h2><span class="muted">Sheet “${esc(sheet().name)}”</span><span class="grow" style="flex:1"></span>
+        <button class="btn icon" data-act="close" aria-label="${esc(tx('close'))}">✕</button></div>
+      <div style="flex:1;min-height:0;padding:16px;display:flex;flex-direction:column;gap:14px;overflow:auto">${body}</div>
+      <div class="modal-foot"><span class="hint">The LEDs in the order of the strip. LED2Var is not simulated.</span><span class="grow"></span>
+        <button class="btn primary" data-act="close">Done</button></div>
+    </div>`;
+}
+
 // ---------------------------------------------------------------- events
 
 document.addEventListener('click', async (ev) => {
@@ -1262,6 +1314,8 @@ async function perform(act, t = null, i = -1) {
     case 'up-refresh': await refreshUpload(); break;
     case 'up-compile': await runUpload(false); break;
     case 'up-run': await runUpload(true); break;
+    case 'simulate': if (state.layout) await openSimulate(); break;
+    case 'sim-input': m.on[i] = !m.on[i]; await invoke('sim_set_input', { channel: i, on: m.on[i] }); renderModal(); break;
 
     // modal basics
     case 'close': case 'backdrop': if (!m?.running) closeModal(); break;

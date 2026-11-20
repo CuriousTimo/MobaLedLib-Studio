@@ -21,6 +21,8 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: true
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
@@ -41,10 +43,12 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: true
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Test core and CLI
-        run: cargo test -p mll-core -p mll-cli
+        run: cargo test -p mll-core -p mll-cli -p mll-sim
       - name: Linux system libraries for the app
         if: runner.os == 'Linux'
         run: |

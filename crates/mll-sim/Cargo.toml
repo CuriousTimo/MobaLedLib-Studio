@@ -1,0 +1,10 @@
+[package]
+name = "mll-sim"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "LED simulator for MobaLedLib Studio: the MobaLedLib engine compiled for the computer"
+links = "mll_sim"
+
+[build-dependencies]
+cc = "1"

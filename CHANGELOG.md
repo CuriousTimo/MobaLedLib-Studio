@@ -6,7 +6,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.1.0-beta.3] - 2026-11-20
+
 ### Added
+- Simulator (Arduino ▸ Simulate…): the LEDs of a sheet run in the engine of MobaLedLib 3.5.0 itself (tag
+  `v3.5.0`, with FastLED from the Jueff fork `a55f336`, as the Excel tool installs), compiled into the app
+  (crate `mll-sim`). The `Config[]` bytes are made as the Excel tool's simulator makes them: the generated
+  header is compiled with the Arduino AVR compiler of arduino-cli and `CONFIG_ONLY`. The window shows the
+  LEDs in strip order and a switch for each input. LED2Var is not simulated; not compared with the Excel
+  simulator.
 - Variables as address: standard inputs (`SI_1`, `SI_0`, …), the generated `INCH_…` defines, `LOC_INCH<n>`
   and names given with `// Define Input(Name)`, as the Excel tool checks them (`Valid_Var_Name`,
   `Add_InpVars`, `Check_Detected_Variables`); an input variable that is never set is an error. Not yet
@@ -101,6 +109,7 @@ First public beta. Untested on real hardware.
 - Effects that set variables (MonoFlop, flip-flops, Counter, Random, RandMux, Schedule, PushButton…) are reported as not supported yet instead of producing a header that doesn't compile
 - Garbled characters in the machine translated effect texts (`Ã¢ â‚¬ Å“`, `â€‹`, `%28%29`, invisible zero-width spaces); `mll extract-catalog` now repairs them
 
-[Unreleased]: https://github.com/CuriousTimo/MobaLedLib-Studio/compare/v0.1.0-beta.2...HEAD
+[Unreleased]: https://github.com/CuriousTimo/MobaLedLib-Studio/compare/v0.1.0-beta.3...HEAD
+[0.1.0-beta.3]: https://github.com/CuriousTimo/MobaLedLib-Studio/compare/v0.1.0-beta.2...v0.1.0-beta.3
 [0.1.0-beta.2]: https://github.com/CuriousTimo/MobaLedLib-Studio/releases/tag/v0.1.0-beta.2
 [0.1.0-beta.1]: https://github.com/CuriousTimo/MobaLedLib-Studio/releases/tag/v0.1.0-beta.1

@@ -52,7 +52,7 @@ Everything else is our own and stays English. This list is taken from `app/ui/ap
 File, Edit, Effect, Arduino, Window, Help · New Layout · Open… · Save · Save As… · Import .MLL_pgf… ·
 Export as .MLL_pgf… · Layout Settings… · Exit · Quit MobaLedLib Studio · About MobaLedLib Studio ·
 Add Effect… · Change Effect… · Duplicate · Delete Effect · Move Up · Move Down · Show Generated Code ·
-Upload…
+Upload… · Simulate…
 
 ### Main window
 
@@ -110,6 +110,11 @@ hint · The MobaLedLib library is not installed. and its install hint · Get the
 found" · Fix these problems first: · Board · Port · No board found · Refresh · Generate · Compile · Upload ·
 The compiler output appears here. · The DCC/Selectrix Arduino needs its own program once; v1 doesn't upload
 it yet. · Compile only · Compile & upload · Working… · Compiled · Uploaded to the Arduino
+
+### Simulate
+
+Simulate · Sheet "…" · Compiling the configuration… · This sheet has no inputs. · On · Off · The LEDs in the
+order of the strip. LED2Var is not simulated. · Done
 
 ### Questions and notices
 
