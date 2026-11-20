@@ -156,15 +156,13 @@ Download the installer for your system from the [Releases](https://github.com/Cu
 For uploading you also need:
 
 1. [`arduino-cli`](https://arduino.github.io/arduino-cli/latest/installation/) (or Arduino IDE 2, which contains it)
-2. The board support and the MobaLedLib library:
-   ```sh
-   arduino-cli core install arduino:avr
-   arduino-cli lib install MobaLedLib@3.5.0
-   arduino-cli lib install FastLED@3.9.12
-   ```
-   The second `lib install` matters: installing MobaLedLib pulls in the newest FastLED, and MobaLedLib 3.5.0
-   doesn't compile with FastLED 3.10 (`using typedef-name 'using CRGB = struct fl::CRGB' after 'struct'`).
-   3.9.12 is the version the Excel Program Generator installs.
+2. The MobaLedLib libraries in the versions that work together: download the bundle from
+   [MobaLedLib-Libraries](https://github.com/CuriousTimo/MobaLedLib-Libraries) and copy its folders into the
+   `libraries` folder of your sketchbook (the page explains it step by step). Don't let the Arduino IDE
+   update them: MobaLedLib 3.5.0 doesn't compile with a newer FastLED such as 3.10
+   (`using typedef-name 'using CRGB = struct fl::CRGB' after 'struct'`).
+3. The board package, for the Nano: `arduino-cli core install arduino:avr@1.8.6` (the versions for ESP32 and
+   Pico are on the same page).
 
 ## Build from source
 

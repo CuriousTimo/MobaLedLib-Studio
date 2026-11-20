@@ -106,7 +106,7 @@ machine translations from the Excel tool. · Danger zone · Delete sheet "…" �
 ### Upload
 
 Upload to the LED Arduino · Sheet "…" · Looking for arduino-cli… · arduino-cli was not found. and its install
-hint · The MobaLedLib library is not installed. and its install hint · "arduino-cli … · MobaLedLib sketch
+hint · The MobaLedLib library is not installed. and its install hint · Get the library bundle · "arduino-cli … · MobaLedLib sketch
 found" · Fix these problems first: · Board · Port · No board found · Refresh · Generate · Compile · Upload ·
 The compiler output appears here. · The DCC/Selectrix Arduino needs its own program once; v1 doesn't upload
 it yet. · Compile only · Compile & upload · Working… · Compiled · Uploaded to the Arduino
