@@ -5,7 +5,7 @@
 ![MobaLedLib Studio: a station with house lighting, gas lamps, signals and a level crossing](docs/screenshot.png)
 
 > [!WARNING]
-> **Beta, completely untested.** Version `0.1.0-beta.3` has not been tried on real hardware, and the
+> **Beta, completely untested.** Version `0.1.0-beta.4` has not been tried on real hardware, and the
 > generated `LEDs_AutoProg.h` has not yet been compared with the output of the Excel tool. Do not rely on
 > it for your layout yet. Test reports are very welcome (see [Help wanted](#help-wanted-testing)).
 
@@ -43,7 +43,7 @@ The effect catalog in [`data/catalog.json`](data/catalog.json) (285 effects, 169
 
 ## Features
 
-### Implemented in 0.1.0-beta.3
+### Implemented in 0.1.0-beta.4
 
 **Layouts and files**
 - Layouts saved as readable JSON (`*.json`), with a format id and version for future migrations
@@ -67,6 +67,9 @@ The effect catalog in [`data/catalog.json`](data/catalog.json) (285 effects, 169
 - Room and light editor for `House()` and `GasLights()`
 - Servos and sound modules are shown as such, not as LEDs
 - LED bus overview of channel 0
+- Chain view (*Table | Chain* above the table), read only: per LED channel the rows in chain order with their
+  LED numbers, grouped by the "Verteiler / Stecker" columns; each distributor drawn as an MLL201, signal
+  effects drawn as their DB light signal with the LED and output of each lamp
 
 **Code generation** (port of `M06_Write_Header.bas`)
 - Automatic LED numbering per LED channel, including single WS2811 channels (`C1-2`, `^`), several lines per
@@ -87,7 +90,8 @@ The effect catalog in [`data/catalog.json`](data/catalog.json) (285 effects, 169
 - Shows the LEDs of a sheet without an Arduino: they run in MobaLedLib 3.5.0's own engine, compiled into the app
 - The configuration is compiled as the Excel tool's simulator does it (the Arduino AVR compiler of `arduino-cli`
   with `CONFIG_ONLY`), so it needs `arduino-cli`, the AVR boards and the library bundle
-- An on/off switch for every input of the sheet
+- An on/off switch for every input of the sheet; signals get a button per aspect (Hp 0, Ks 1, …)
+- The signals of the sheet, lit live from the engine's LEDs; the LED strip grouped per LED channel
 - Not yet compared with the Excel simulator; `LED_to_Var()` is not simulated
 
 **Build and upload**
@@ -181,7 +185,7 @@ The simulator compiles MobaLedLib and FastLED from git submodules; clone with `-
 ```sh
 cargo run -p mobaledlib-studio        # start the app
 cargo run -p mobaledlib-studio -- "examples/Adorf station.json" --row 2 --view gallery
-                                      # open a file, select a row, open a view (gallery, header, upload, settings, simulate)
+                                      # open a file, select a row, open a view (gallery, header, upload, settings, simulate, chain)
 cargo test --workspace                # run the tests
 cargo run -p mll-cli -- generate layout.json
 ```

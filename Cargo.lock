@@ -2139,7 +2139,7 @@ dependencies = [
 
 [[package]]
 name = "mll-cli"
-version = "0.1.0-beta.3"
+version = "0.1.0-beta.4"
 dependencies = [
  "anyhow",
  "calamine",
@@ -2151,7 +2151,7 @@ dependencies = [
 
 [[package]]
 name = "mll-core"
-version = "0.1.0-beta.3"
+version = "0.1.0-beta.4"
 dependencies = [
  "chrono",
  "encoding_rs",
@@ -2162,14 +2162,14 @@ dependencies = [
 
 [[package]]
 name = "mll-sim"
-version = "0.1.0-beta.3"
+version = "0.1.0-beta.4"
 dependencies = [
  "cc",
 ]
 
 [[package]]
 name = "mobaledlib-studio"
-version = "0.1.0-beta.3"
+version = "0.1.0-beta.4"
 dependencies = [
  "mll-core",
  "mll-sim",

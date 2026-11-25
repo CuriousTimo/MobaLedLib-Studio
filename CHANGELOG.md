@@ -6,6 +6,33 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.1.0-beta.4] - 2026-11-25
+
+Still untested on real hardware. Nothing in this release changes `LEDs_AutoProg.h`.
+
+### Added
+- Module library (`data/modules/modules.json` and SVGs): the MobaLedLib boards (MLL101, MLL201, 503, 504, 521,
+  295, WS2811 breakout, WS2812, single LED, lamps) and 11 DB light signals (H/V, Ks, Sh), with their ports,
+  connectors and wiki.mobaledlib.de sources. Not from the Excel workbook: a deliberate exception for the
+  drawings. For each workbook signal macro the library says which output lights each lamp, found by running
+  the macro in the simulator. The signal drawings come from
+  [Hive-Rail](https://github.com/CuriousTimo/Hive-Rail) (#17, #19).
+- Chain view (*Table | Chain* above the table), read only: per LED channel the rows in chain order with their
+  LED numbers, grouped by the "Verteiler / Stecker" columns. Disabled rows take no LEDs. A plug that comes
+  back later in a channel is flagged. Each distributor is drawn as an MLL201 and clicking an output selects
+  its row. Signal effects are drawn as their signal, all to one scale. The table stays leading: the view
+  never changes rows (#18).
+- Simulator: the signals of the sheet, lit live from the engine's LEDs. Signals switch per aspect (Hp 0,
+  Ks 1 + Zs 3, …) instead of one switch per input. The LED strip is grouped per LED channel. Hovering a
+  signal, lamp, button or LED marks what belongs to it. A WS2811 driving single lamps shows as one dot in the
+  colour of its brightest lit lamp (#19).
+- `--view chain` opens the chain view at start.
+
+### Fixed
+- arduino-cli: the sketchbook and data folders are read with `config get`, which also gives the defaults.
+  With arduino-cli 1.x, `config dump` lists only what is set in the config file, so a plain Arduino IDE
+  install was reported as "MobaLedLib not installed".
+
 ## [0.1.0-beta.3] - 2026-11-20
 
 ### Added
@@ -109,7 +136,8 @@ First public beta. Untested on real hardware.
 - Effects that set variables (MonoFlop, flip-flops, Counter, Random, RandMux, Schedule, PushButton…) are reported as not supported yet instead of producing a header that doesn't compile
 - Garbled characters in the machine translated effect texts (`Ã¢ â‚¬ Å“`, `â€‹`, `%28%29`, invisible zero-width spaces); `mll extract-catalog` now repairs them
 
-[Unreleased]: https://github.com/CuriousTimo/MobaLedLib-Studio/compare/v0.1.0-beta.3...HEAD
+[Unreleased]: https://github.com/CuriousTimo/MobaLedLib-Studio/compare/v0.1.0-beta.4...HEAD
+[0.1.0-beta.4]: https://github.com/CuriousTimo/MobaLedLib-Studio/compare/v0.1.0-beta.3...v0.1.0-beta.4
 [0.1.0-beta.3]: https://github.com/CuriousTimo/MobaLedLib-Studio/compare/v0.1.0-beta.2...v0.1.0-beta.3
 [0.1.0-beta.2]: https://github.com/CuriousTimo/MobaLedLib-Studio/releases/tag/v0.1.0-beta.2
 [0.1.0-beta.1]: https://github.com/CuriousTimo/MobaLedLib-Studio/releases/tag/v0.1.0-beta.1
