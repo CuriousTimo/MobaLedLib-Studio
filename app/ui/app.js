@@ -607,7 +607,9 @@ function signalHtml(sig, base, i) {
     out = out.replace(new RegExp(`(<g class="port" data-port="${p.id}"[^>]*>)`), `$1<title>${esc(text)}</title>`);
   }
   const extra = sig.drive.not_drawn?.length ? ` Not drawn: ${sig.drive.not_drawn.join(', ')}.` : '';
-  return `<div class="chain-signal" title="${esc(`${sig.mod.name}.${extra}`)}" ${base == null ? '' : `data-base="${base}"`} data-sig="${esc(sig.mod.id)}" data-i="${i}">${out}</div>`;
+  // drawn to one scale: the size of a signal follows its viewBox (a light shunting signal is small)
+  const vb = svg.match(/viewBox="[\d.]+ [\d.]+ [\d.]+ ([\d.]+)"/);
+  return `<div class="chain-signal" style="--vbh:${vb ? vb[1] : 100}" title="${esc(`${sig.mod.name}.${extra}`)}" ${base == null ? '' : `data-base="${base}"`} data-sig="${esc(sig.mod.id)}" data-i="${i}">${out}</div>`;
 }
 
 // The LED of row i in the simulator's leds[]: its channel's first LED plus its start number.
