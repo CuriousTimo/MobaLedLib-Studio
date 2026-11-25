@@ -1,8 +1,10 @@
 //! The module library: MobaLedLib hardware modules (boards, LEDs, lamps) as data and SVGs,
 //! for a view of the physical LED chain (`data/modules/`).
 //!
-//! Not from the Excel workbook: a deliberate exception. The facts come from wiki.mobaledlib.de
-//! (each module lists its source). Nothing here changes the generated `LEDs_AutoProg.h`.
+//! Not from the Excel workbook: a deliberate exception. The board facts come from wiki.mobaledlib.de
+//! (each module lists its source); the signal drawings from Hive-Rail, and which output lights which
+//! lamp from running the workbook's signal macros in the simulator (issue #19). Nothing here changes
+//! the generated `LEDs_AutoProg.h`.
 
 use std::collections::BTreeMap;
 
@@ -51,6 +53,9 @@ pub struct Module {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sections: Vec<Section>,
     pub ports: Vec<Port>,
+    /// For a signal: which output lights each lamp, per workbook signal macro.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub drives: Vec<Drive>,
     #[serde(default)]
     pub facts: Vec<String>,
     /// What no source confirms yet.
@@ -66,6 +71,37 @@ pub struct Section {
     pub leds: u32,
     #[serde(rename = "return")]
     pub return_port: String,
+}
+
+/// How workbook signal macros light the lamps of a signal drawing.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Drive {
+    /// Macro names of the catalog that light the lamps the same way.
+    pub macros: Vec<String>,
+    /// Lamp port -> output: `Cn` the n-th single output from the macro's LED (WS2811, from 1),
+    /// `Ln` the n-th WS2812 after it (from 0). Two lamps may share an output.
+    pub lamps: BTreeMap<String, String>,
+    /// Outputs the macro lights that have no lamp in the drawing, e.g. "C3 (Zs 3V)".
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub not_drawn: Vec<String>,
+}
+
+/// An output of a [`Drive`]: a single output (`Cn`, from 1) or an RGB LED (`Ln`, from 0).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Output {
+    Single(u32),
+    Rgb(u32),
+}
+
+impl Output {
+    pub fn parse(s: &str) -> Option<Output> {
+        let n = |r: &str| r.parse::<u32>().ok();
+        match s.split_at_checked(1)? {
+            ("C", r) => n(r).filter(|&v| v >= 1).map(Output::Single),
+            ("L", r) => n(r).map(Output::Rgb),
+            _ => None,
+        }
+    }
 }
 
 /// A connection point; `id` is the `data-port` of its element in the SVG.
@@ -95,6 +131,17 @@ const SVGS: &[(&str, &str)] = &[
     ("led.svg", include_str!("../../../data/modules/led.svg")),
     ("lamp.svg", include_str!("../../../data/modules/lamp.svg")),
     ("lamp-rgb.svg", include_str!("../../../data/modules/lamp-rgb.svg")),
+    ("signal-hv-entry.svg", include_str!("../../../data/modules/signal-hv-entry.svg")),
+    ("signal-hv-departure.svg", include_str!("../../../data/modules/signal-hv-departure.svg")),
+    ("signal-hv-departure-distant.svg", include_str!("../../../data/modules/signal-hv-departure-distant.svg")),
+    ("signal-hv-entry-distant.svg", include_str!("../../../data/modules/signal-hv-entry-distant.svg")),
+    ("signal-hv-block.svg", include_str!("../../../data/modules/signal-hv-block.svg")),
+    ("signal-hv-block-distant.svg", include_str!("../../../data/modules/signal-hv-block-distant.svg")),
+    ("signal-hv-distant.svg", include_str!("../../../data/modules/signal-hv-distant.svg")),
+    ("signal-ks-distant.svg", include_str!("../../../data/modules/signal-ks-distant.svg")),
+    ("signal-ks-main.svg", include_str!("../../../data/modules/signal-ks-main.svg")),
+    ("signal-ks-multi.svg", include_str!("../../../data/modules/signal-ks-multi.svg")),
+    ("signal-sh-light.svg", include_str!("../../../data/modules/signal-sh-light.svg")),
 ];
 
 impl Library {
@@ -145,5 +192,14 @@ mod tests {
         let svg = r#"<g class="port" data-port="in"><rect/></g><g data-port="out1"/>"#;
         assert_eq!(svg_ports(svg), ["in", "out1"]);
         assert!(svg_ports("<svg/>").is_empty());
+    }
+
+    #[test]
+    fn outputs_parse() {
+        assert_eq!(Output::parse("C1"), Some(Output::Single(1)));
+        assert_eq!(Output::parse("L0"), Some(Output::Rgb(0)));
+        assert_eq!(Output::parse("C0"), None);
+        assert_eq!(Output::parse("X1"), None);
+        assert_eq!(Output::parse(""), None);
     }
 }

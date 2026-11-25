@@ -225,3 +225,8 @@ Licensed under the [GNU Lesser General Public License v2.1](LICENSE) or later, l
 
 MobaLedLib and the Excel Program Generator are by Hardi Stengelin, Jürgen Winkler and the MobaLedLib community.
 The effect catalog, effect descriptions and the code generation rules are taken from their work.
+
+The DB light signal drawings of the module library (`data/modules/signal-*.svg`, written by
+`scripts/signal_svgs.py`; preview in `docs/images/signals.png`) are taken from the signal faces of
+[Hive-Rail](https://github.com/CuriousTimo/Hive-Rail) (`assets/signals`, drawn by `tools/signal_faces.py`),
+a project by the same author.

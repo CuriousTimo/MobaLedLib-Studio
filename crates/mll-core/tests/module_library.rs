@@ -2,7 +2,8 @@
 
 use std::collections::BTreeSet;
 
-use mll_core::modules::{bundled_svg, bundled_svg_files, svg_ports, Library};
+use mll_core::modules::{bundled_svg, bundled_svg_files, svg_ports, Library, Output};
+use mll_core::Catalog;
 
 #[test]
 fn library_loads() {
@@ -72,6 +73,43 @@ fn connector_kinds_and_section_returns_exist() {
         if !m.sections.is_empty() {
             let sum: u32 = m.sections.iter().map(|s| s.leds).sum();
             assert_eq!(Some(sum), m.leds, "{}: sections don't add up to its LEDs", m.id);
+        }
+    }
+}
+
+/// The outputs a catalog macro has: `C1-n` is n single outputs, a number that many RGB LEDs.
+fn macro_outputs(leds: &str) -> Option<Output> {
+    match leds.strip_prefix("C1-") {
+        Some(n) => n.parse().ok().map(Output::Single),
+        None => leds.parse().ok().map(Output::Rgb),
+    }
+}
+
+#[test]
+fn signal_drives_fit_the_catalog_and_the_drawing() {
+    let lib = Library::bundled();
+    let cat = Catalog::bundled();
+    let mut seen = BTreeSet::new();
+    for m in &lib.modules {
+        let ports: BTreeSet<&str> = m.ports.iter().map(|p| p.id.as_str()).collect();
+        for d in &m.drives {
+            assert!(!d.lamps.is_empty(), "{}: a drive without lamps", m.id);
+            for name in &d.macros {
+                assert!(seen.insert(name), "{}: macro {name} is mapped twice", m.id);
+                let def = cat.macros.iter().find(|x| &x.name == name);
+                let def = def.unwrap_or_else(|| panic!("{}: {name} is not in the catalog", m.id));
+                let have = macro_outputs(&def.leds).unwrap_or_else(|| panic!("{name}: LEDs {:?}", def.leds));
+                for (lamp, out) in &d.lamps {
+                    assert!(ports.contains(lamp.as_str()), "{}: lamp {lamp} is no port", m.id);
+                    let o = Output::parse(out).unwrap_or_else(|| panic!("{}: output {out}", m.id));
+                    let fits = match (o, have) {
+                        (Output::Single(n), Output::Single(max)) => n <= max,
+                        (Output::Rgb(n), Output::Rgb(count)) => n < count,
+                        _ => false,
+                    };
+                    assert!(fits, "{}: {name} has no output {out} (LEDs {})", m.id, def.leds);
+                }
+            }
         }
     }
 }

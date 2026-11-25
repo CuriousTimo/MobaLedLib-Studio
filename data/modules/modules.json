@@ -1,10 +1,11 @@
 {
-  "about": "MobaLedLib hardware modules for a chain view. Not from the Excel workbook: a deliberate exception, the facts come from wiki.mobaledlib.de (source per module). Nothing here changes LEDs_AutoProg.h. 'unconfirmed' lists what no source confirms yet. Ports are the data-port ids in the SVG. 'leds' is how many LED numbers the module takes in the chain, 'channels' how many single outputs (3 per WS2811).",
+  "about": "MobaLedLib hardware modules for a chain view. Not from the Excel workbook: a deliberate exception, the facts come from wiki.mobaledlib.de (source per module). Nothing here changes LEDs_AutoProg.h. 'unconfirmed' lists what no source confirms yet. Ports are the data-port ids in the SVG. 'leds' is how many LED numbers the module takes in the chain, 'channels' how many single outputs (3 per WS2811). A signal's 'drives' says, per workbook signal macro, which output lights each lamp: Cn is the n-th single output from the macro's LED (WS2811), Ln the n-th WS2812 after it; found by running each macro in the simulator (issue #19).",
   "categories": {
     "led": { "name": "LED module", "color": "#F5C76A" },
     "splitter": { "name": "Splitter", "color": "#5BD48A" },
     "controller": { "name": "Controller", "color": "#5BD48A" },
-    "light": { "name": "Light", "color": "#F5C76A" }
+    "light": { "name": "Light", "color": "#F5C76A" },
+    "signal": { "name": "Signal", "color": "#FF7A6B" }
   },
   "connectors": {
     "wanne6": {
@@ -254,6 +255,204 @@
         { "id": "b", "kind": "channel-input" }
       ],
       "facts": ["a plain RGB LED on the three outputs of one WS2811; lit through the CSS variables --r, --g, --b (0..255)"]
+    },
+    {
+      "id": "signal-hv-entry",
+      "name": "H/V entry signal",
+      "svg": "signal-hv-entry.svg",
+      "category": "signal",
+      "ports": [
+        { "id": "green", "kind": "lamp" },
+        { "id": "red1", "kind": "lamp" },
+        { "id": "yellow", "kind": "lamp" }
+      ],
+      "facts": ["H/V entry signal (Einfahrsignal): Hp 0 (one red), Hp 1, Hp 2"],
+      "drives": [
+        { "macros": ["EntrySignal3", "EntrySignal3Bin"], "lamps": {"red1": "C1", "green": "C2", "yellow": "C3"} },
+        { "macros": ["EntrySignal3_RGB", "EntrySignal3_RGB_B", "EntrySignal3Bin_RGB"], "lamps": {"green": "L0", "yellow": "L1", "red1": "L2"} }
+      ],
+      "source": ["https://github.com/CuriousTimo/Hive-Rail (assets/signals)", "https://github.com/CuriousTimo/MobaLedLib-Studio/issues/19#issuecomment-7172518251"]
+    },
+    {
+      "id": "signal-hv-departure",
+      "name": "H/V departure signal",
+      "svg": "signal-hv-departure.svg",
+      "category": "signal",
+      "ports": [
+        { "id": "green", "kind": "lamp" },
+        { "id": "red1", "kind": "lamp" },
+        { "id": "red2", "kind": "lamp" },
+        { "id": "white", "kind": "lamp" },
+        { "id": "white2", "kind": "lamp" },
+        { "id": "yellow", "kind": "lamp" }
+      ],
+      "facts": ["H/V departure signal (Ausfahrsignal): Hp 0 (two reds), Hp 1, Hp 2, Hp 0 + Sh 1", "DepSignal4: one output (C5) lights both Sh 1 whites; C6 stays unused", "red1 is the red that stays lit at Hp 0 + Sh 1"],
+      "drives": [
+        { "macros": ["DepSignal4", "DepSignal4Bin"], "lamps": {"red1": "C1", "green": "C2", "yellow": "C3", "red2": "C4", "white": "C5", "white2": "C5"} },
+        { "macros": ["DepSignal4_RGB", "DepSignal4Bin_RGB"], "lamps": {"green": "L0", "red1": "L1", "red2": "L2", "white": "L3", "white2": "L4", "yellow": "L5"} },
+        { "macros": ["HS_5l_RGB", "HS_5r_RGB", "HS_5lBin_RGB", "HS_5rBin_RGB"], "lamps": {"yellow": "L0", "red1": "L1", "green": "L2", "red2": "L3", "white": "L4", "white2": "L4"} }
+      ],
+      "unconfirmed": ["HS_5l_RGB / HS_5r_RGB (Matthias' signals) light one white LED (L4) for Sh 1; drawn on both whites"],
+      "source": ["https://github.com/CuriousTimo/Hive-Rail (assets/signals)", "https://github.com/CuriousTimo/MobaLedLib-Studio/issues/19#issuecomment-7172518251"]
+    },
+    {
+      "id": "signal-hv-departure-distant",
+      "name": "H/V departure signal with distant signal",
+      "svg": "signal-hv-departure-distant.svg",
+      "category": "signal",
+      "ports": [
+        { "id": "green", "kind": "lamp" },
+        { "id": "red1", "kind": "lamp" },
+        { "id": "red2", "kind": "lamp" },
+        { "id": "white", "kind": "lamp" },
+        { "id": "white2", "kind": "lamp" },
+        { "id": "yellow", "kind": "lamp" },
+        { "id": "ur-vr-yellow", "kind": "lamp" },
+        { "id": "ur-vr-green", "kind": "lamp" },
+        { "id": "ll-vr-yellow", "kind": "lamp" },
+        { "id": "ll-vr-green", "kind": "lamp" },
+        { "id": "extra", "kind": "lamp" }
+      ],
+      "facts": ["H/V departure signal with the distant signal below it on the same mast: the main signal's aspects, with Vr 0, Vr 1 or Vr 2 (dark at Hp 0)"],
+      "drives": [
+        { "macros": ["HS_5_Plus_RGB", "HS_5_PlusBin_RGB"], "lamps": {"yellow": "L0", "red1": "L1", "green": "L2", "red2": "L3", "white": "L4", "white2": "L4", "ur-vr-yellow": "L5", "ur-vr-green": "L6", "ll-vr-yellow": "L7", "ll-vr-green": "L8"} }
+      ],
+      "unconfirmed": ["HS_5_Plus_RGB lights its distant lamps only in pairs (Vr 0: L5 + L7, Vr 1: L6 + L8; no Vr 2), so which of L5/L7 and L6/L8 is the upper right lamp is not known", "HS_5_Plus_RGB lights one white LED (L4) for Sh 1; drawn on both whites"],
+      "source": ["https://github.com/CuriousTimo/Hive-Rail (assets/signals)", "https://github.com/CuriousTimo/MobaLedLib-Studio/issues/19#issuecomment-7172518251"]
+    },
+    {
+      "id": "signal-hv-entry-distant",
+      "name": "H/V entry signal with distant signal",
+      "svg": "signal-hv-entry-distant.svg",
+      "category": "signal",
+      "ports": [
+        { "id": "green", "kind": "lamp" },
+        { "id": "red1", "kind": "lamp" },
+        { "id": "yellow", "kind": "lamp" },
+        { "id": "ur-vr-yellow", "kind": "lamp" },
+        { "id": "ur-vr-green", "kind": "lamp" },
+        { "id": "ll-vr-yellow", "kind": "lamp" },
+        { "id": "ll-vr-green", "kind": "lamp" },
+        { "id": "extra", "kind": "lamp" }
+      ],
+      "facts": ["H/V entry signal with the distant signal below it on the same mast: the main signal's aspects, with Vr 0, Vr 1 or Vr 2 (dark at Hp 0)"],
+      "source": ["https://github.com/CuriousTimo/Hive-Rail (assets/signals)"]
+    },
+    {
+      "id": "signal-hv-block",
+      "name": "H/V block signal",
+      "svg": "signal-hv-block.svg",
+      "category": "signal",
+      "ports": [
+        { "id": "red1", "kind": "lamp" },
+        { "id": "green", "kind": "lamp" }
+      ],
+      "facts": ["H/V block signal (Blocksignal): Hp 0 (one red), Hp 1"],
+      "source": ["https://github.com/CuriousTimo/Hive-Rail (assets/signals)"]
+    },
+    {
+      "id": "signal-hv-block-distant",
+      "name": "H/V block signal with distant signal",
+      "svg": "signal-hv-block-distant.svg",
+      "category": "signal",
+      "ports": [
+        { "id": "red1", "kind": "lamp" },
+        { "id": "green", "kind": "lamp" },
+        { "id": "ur-vr-yellow", "kind": "lamp" },
+        { "id": "ur-vr-green", "kind": "lamp" },
+        { "id": "ll-vr-yellow", "kind": "lamp" },
+        { "id": "ll-vr-green", "kind": "lamp" },
+        { "id": "extra", "kind": "lamp" }
+      ],
+      "facts": ["H/V block signal with the distant signal below it on the same mast: the main signal's aspects, with Vr 0, Vr 1 or Vr 2 (dark at Hp 0)"],
+      "source": ["https://github.com/CuriousTimo/Hive-Rail (assets/signals)"]
+    },
+    {
+      "id": "signal-hv-distant",
+      "name": "H/V distant signal",
+      "svg": "signal-hv-distant.svg",
+      "category": "signal",
+      "ports": [
+        { "id": "ur-vr-yellow", "kind": "lamp" },
+        { "id": "ur-vr-green", "kind": "lamp" },
+        { "id": "ll-vr-yellow", "kind": "lamp" },
+        { "id": "ll-vr-green", "kind": "lamp" },
+        { "id": "extra", "kind": "lamp" }
+      ],
+      "facts": ["H/V light distant signal (Lichtvorsignal): Vr 0, Vr 1, Vr 2; the white Zusatzlicht as an option"],
+      "unconfirmed": ["Vorsignal_RGB lights two red LEDs (L1 + L3) in state 0, so it is not mapped to this drawing"],
+      "source": ["https://github.com/CuriousTimo/Hive-Rail (assets/signals)"]
+    },
+    {
+      "id": "signal-ks-distant",
+      "name": "Ks distant signal",
+      "svg": "signal-ks-distant.svg",
+      "category": "signal",
+      "ports": [
+        { "id": "ks-green", "kind": "lamp" },
+        { "id": "ks-yellow", "kind": "lamp" },
+        { "id": "extra", "kind": "lamp" }
+      ],
+      "facts": ["Ks distant signal (Ks-Vorsignal): Ks 1 (green), Ks 2 (yellow); the upper white", "the white (extra) is lit at Ks 2 and at Ks 1 + Zs 3V: the repeater's Zusatzlicht"],
+      "drives": [
+        { "macros": ["KS_Vorsignal_Zs3V", "KS_Vorsignal_Zs3VBin"], "lamps": {"ks-yellow": "C1", "ks-green": "C2", "extra": "C4"}, "not_drawn": ["C3 (Zs 3V)"] },
+        { "macros": ["KS_Vorsignal_Zs3V_RGB", "KS_Vorsignal_Zs3VBin_RGB"], "lamps": {"ks-yellow": "L0", "ks-green": "L1", "extra": "L3"}, "not_drawn": ["L2 (Zs 3V)"] }
+      ],
+      "source": ["https://github.com/CuriousTimo/Hive-Rail (assets/signals)", "https://github.com/CuriousTimo/MobaLedLib-Studio/issues/19#issuecomment-7172518251"]
+    },
+    {
+      "id": "signal-ks-main",
+      "name": "Ks main signal",
+      "svg": "signal-ks-main.svg",
+      "category": "signal",
+      "ports": [
+        { "id": "ks-red", "kind": "lamp" },
+        { "id": "ks-green", "kind": "lamp" },
+        { "id": "white", "kind": "lamp" },
+        { "id": "white2", "kind": "lamp" }
+      ],
+      "facts": ["Ks main signal: red, the green below it; Hp 0, Ks 1; Sh 1 (departure signals)"],
+      "drives": [
+        { "macros": ["KS_Hauptsignal_Zs3_Zs1", "KS_Hauptsignal_Zs3_Zs1Bin"], "lamps": {"ks-red": "C2", "ks-green": "C3"}, "not_drawn": ["C1 (Zs 3)", "C4 (Zs 1)"] },
+        { "macros": ["KS_Hauptsignal_Zs3_Zs1_RGB", "KS_Hauptsignal_Zs3_Zs1Bin_RGB"], "lamps": {"ks-red": "L1", "ks-green": "L2"}, "not_drawn": ["L0 (Zs 3)", "L3 (Zs 1)"] },
+        { "macros": ["KS_Hauptsignal_Zs3_Zs6_Zs1", "KS_Hauptsignal_Zs3_Zs6_Zs1Bin"], "lamps": {"ks-red": "C2", "ks-green": "C3"}, "not_drawn": ["C1 (Zs 3)", "C4 (Zs 1)", "C5 (Zs 6)"] },
+        { "macros": ["KS_Hauptsignal_Zs3_Zs6_Zs1_RGB", "KS_Hauptsignal_Zs3_Zs6_Zs1Bin_RGB"], "lamps": {"ks-red": "L1", "ks-green": "L2"}, "not_drawn": ["L0 (Zs 3)", "L3 (Zs 1)", "L4 (Zs 6)"] }
+      ],
+      "source": ["https://github.com/CuriousTimo/Hive-Rail (assets/signals)", "https://github.com/CuriousTimo/MobaLedLib-Studio/issues/19#issuecomment-7172518251"]
+    },
+    {
+      "id": "signal-ks-multi",
+      "name": "Ks multi-section signal",
+      "svg": "signal-ks-multi.svg",
+      "category": "signal",
+      "ports": [
+        { "id": "ks-red", "kind": "lamp" },
+        { "id": "ks-green", "kind": "lamp" },
+        { "id": "ks-yellow", "kind": "lamp" },
+        { "id": "extra", "kind": "lamp" },
+        { "id": "white", "kind": "lamp" },
+        { "id": "white2", "kind": "lamp" }
+      ],
+      "facts": ["Ks multi-section signal (Mehrabschnittssignal): Hp 0, Ks 1, Ks 2; Sh 1 (departure signals); the upper white"],
+      "source": ["https://github.com/CuriousTimo/Hive-Rail (assets/signals)"]
+    },
+    {
+      "id": "signal-sh-light",
+      "name": "Light shunting signal",
+      "svg": "signal-sh-light.svg",
+      "category": "signal",
+      "ports": [
+        { "id": "sh-red", "kind": "lamp" },
+        { "id": "sh-red2", "kind": "lamp" },
+        { "id": "white", "kind": "lamp" },
+        { "id": "white2", "kind": "lamp" }
+      ],
+      "facts": ["Light shunting signal (Lichtsperrsignal): Sh 0 (two reds), Sh 1 (two whites rising to the right)"],
+      "drives": [
+        { "macros": ["Gleissperrsignal_RGB", "GleissperrsignalBin_RGB"], "lamps": {"white": "L0", "sh-red": "L1", "white2": "L2", "sh-red2": "L3"} }
+      ],
+      "unconfirmed": ["Gleissperrsignal_RGB lights its lamps only in pairs (Sh 0: L1 + L3, Sh 1: L0 + L2), so which lamp of a pair is which is not known"],
+      "source": ["https://github.com/CuriousTimo/Hive-Rail (assets/signals)", "https://github.com/CuriousTimo/MobaLedLib-Studio/issues/19#issuecomment-7172518251"]
     }
   ]
 }
