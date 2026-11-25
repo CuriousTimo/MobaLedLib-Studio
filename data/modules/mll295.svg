@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 96" width="320" height="192">
+<title>MLL295 TinyHouse</title>
+<rect x="0.5" y="0.5" width="159" height="95" rx="5" fill="#1F4C8A" stroke="#3667AC"/>
+<g class="port" data-port="in">
+<rect x="4" y="34" width="13" height="18" rx="1.5" fill="#14171C"/>
+<rect x="7" y="37" width="2" height="2" fill="#D9B44A"/>
+<rect x="12" y="37" width="2" height="2" fill="#D9B44A"/>
+<rect x="7" y="42" width="2" height="2" fill="#D9B44A"/>
+<rect x="12" y="42" width="2" height="2" fill="#D9B44A"/>
+<rect x="7" y="47" width="2" height="2" fill="#D9B44A"/>
+<rect x="12" y="47" width="2" height="2" fill="#D9B44A"/>
+</g><text x="24" y="43" font-size="5" text-anchor="middle" fill="#EEF2F7" font-family="JetBrains Mono, ui-monospace, Menlo, monospace" transform="rotate(-90 24 43)">IN</text>
+<g class="port" data-port="rgb5"><rect x="40" y="4" width="3" height="6" rx="1" fill="#D9B44A"/><rect x="46" y="4" width="3" height="6" rx="1" fill="#D9B44A"/><rect x="52" y="4" width="3" height="6" rx="1" fill="#D9B44A"/><rect x="58" y="4" width="3" height="6" rx="1" fill="#D9B44A"/></g>
+<text x="50.5" y="19" font-size="5" text-anchor="middle" fill="#EEF2F7" font-family="JetBrains Mono, ui-monospace, Menlo, monospace">LED5</text>
+<g class="port" data-port="rgb4"><rect x="78" y="4" width="3" height="6" rx="1" fill="#D9B44A"/><rect x="84" y="4" width="3" height="6" rx="1" fill="#D9B44A"/><rect x="90" y="4" width="3" height="6" rx="1" fill="#D9B44A"/><rect x="96" y="4" width="3" height="6" rx="1" fill="#D9B44A"/></g>
+<text x="88.5" y="19" font-size="5" text-anchor="middle" fill="#EEF2F7" font-family="JetBrains Mono, ui-monospace, Menlo, monospace">LED4</text>
+<g class="port" data-port="rgb3"><rect x="116" y="4" width="3" height="6" rx="1" fill="#D9B44A"/><rect x="122" y="4" width="3" height="6" rx="1" fill="#D9B44A"/><rect x="128" y="4" width="3" height="6" rx="1" fill="#D9B44A"/><rect x="134" y="4" width="3" height="6" rx="1" fill="#D9B44A"/></g>
+<text x="126.5" y="19" font-size="5" text-anchor="middle" fill="#EEF2F7" font-family="JetBrains Mono, ui-monospace, Menlo, monospace">LED3</text>
+<g class="port" data-port="heartbeat"><rect x="40" y="38" width="9" height="9" rx="1" fill="#E9ECEF"/><circle cx="44.5" cy="42.5" r="2.88" fill="#FFFFFF" stroke="#AEB4BC" stroke-width="0.5"/></g>
+<rect x="80" y="39" width="10" height="7" rx="1" fill="#14171C"/><rect x="110" y="39" width="10" height="7" rx="1" fill="#14171C"/>
+<g class="port" data-port="led1"><rect x="46" y="86" width="3" height="6" rx="1" fill="#D9B44A"/><rect x="53" y="86" width="3" height="6" rx="1" fill="#D9B44A"/><rect x="60" y="86" width="3" height="6" rx="1" fill="#D9B44A"/><rect x="67" y="86" width="3" height="6" rx="1" fill="#D9B44A"/><rect x="74" y="86" width="3" height="6" rx="1" fill="#D9B44A"/><rect x="81" y="86" width="3" height="6" rx="1" fill="#D9B44A"/></g>
+<text x="65" y="82" font-size="5" text-anchor="middle" fill="#EEF2F7" font-family="JetBrains Mono, ui-monospace, Menlo, monospace">LED1</text>
+<g class="port" data-port="led2"><rect x="102" y="86" width="3" height="6" rx="1" fill="#D9B44A"/><rect x="109" y="86" width="3" height="6" rx="1" fill="#D9B44A"/><rect x="116" y="86" width="3" height="6" rx="1" fill="#D9B44A"/><rect x="123" y="86" width="3" height="6" rx="1" fill="#D9B44A"/><rect x="130" y="86" width="3" height="6" rx="1" fill="#D9B44A"/><rect x="137" y="86" width="3" height="6" rx="1" fill="#D9B44A"/></g>
+<text x="121" y="82" font-size="5" text-anchor="middle" fill="#EEF2F7" font-family="JetBrains Mono, ui-monospace, Menlo, monospace">LED2</text>
+<text x="100" y="62" font-size="6.5" text-anchor="middle" fill="#EEF2F7" font-weight="700" font-family="JetBrains Mono, ui-monospace, Menlo, monospace">TinyHouse (295)</text>
+<circle cx="152" cy="8" r="3" fill="#F5C76A"/>
+</svg>

@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 44" width="160" height="88">
+<title>WS2811 breakout board</title>
+<rect x="0.5" y="0.5" width="79" height="43" rx="5" fill="#1F4C8A" stroke="#3667AC"/>
+<g class="port" data-port="led_b"><circle cx="8" cy="7.0" r="3.2" fill="#D9B44A"/></g>
+<text x="15" y="9.0" font-size="5" text-anchor="start" fill="#EEF2F7" font-family="JetBrains Mono, ui-monospace, Menlo, monospace">B</text>
+<g class="port" data-port="led_g"><circle cx="8" cy="16.5" r="3.2" fill="#D9B44A"/></g>
+<text x="15" y="18.5" font-size="5" text-anchor="start" fill="#EEF2F7" font-family="JetBrains Mono, ui-monospace, Menlo, monospace">G</text>
+<g class="port" data-port="led_plus"><circle cx="8" cy="26.0" r="3.2" fill="#D9B44A"/></g>
+<text x="15" y="28.0" font-size="5" text-anchor="start" fill="#EEF2F7" font-family="JetBrains Mono, ui-monospace, Menlo, monospace">+</text>
+<g class="port" data-port="led_r"><circle cx="8" cy="35.5" r="3.2" fill="#D9B44A"/></g>
+<text x="15" y="37.5" font-size="5" text-anchor="start" fill="#EEF2F7" font-family="JetBrains Mono, ui-monospace, Menlo, monospace">R</text>
+<rect x="36" y="14" width="10" height="7" rx="1" fill="#14171C"/>
+<g class="port" data-port="5v"><rect x="65" y="6" width="11" height="6" rx="1" fill="#D9B44A"/></g><text x="62" y="11" font-size="5" text-anchor="end" fill="#EEF2F7" font-family="JetBrains Mono, ui-monospace, Menlo, monospace">+</text>
+<g class="port" data-port="out"><rect x="65" y="16" width="11" height="6" rx="1" fill="#D9B44A"/></g><text x="62" y="21" font-size="5" text-anchor="end" fill="#EEF2F7" font-family="JetBrains Mono, ui-monospace, Menlo, monospace">DO</text>
+<g class="port" data-port="gnd"><rect x="65" y="26" width="11" height="6" rx="1" fill="#D9B44A"/></g><text x="62" y="31" font-size="5" text-anchor="end" fill="#EEF2F7" font-family="JetBrains Mono, ui-monospace, Menlo, monospace">-</text>
+<text x="46" y="40" font-size="6.5" text-anchor="middle" fill="#EEF2F7" font-weight="700" font-family="JetBrains Mono, ui-monospace, Menlo, monospace">WS2811</text>
+<circle cx="73" cy="39" r="3" fill="#F5C76A"/>
+</svg>
