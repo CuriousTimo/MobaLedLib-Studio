@@ -129,7 +129,7 @@ for i in range(12):
     b.append(f'<g class="dip" data-dip="{i+1}"><rect x="{sx}" y="45" width="6" height="20" rx="0.8" fill="#3A3F47"/>'
              f'<rect x="{sx+0.8}" y="46" width="4.4" height="8" rx="0.6" fill="{TEXT}"/></g>')
     b.append(label(sx + 3, 76, str(i + 1)))
-b.append(label(226, 49, "off", anchor="start") + label(226, 66, "on", anchor="start"))
+b.append(label(222, 49, "inactive", anchor="start") + label(222, 66, "active", anchor="start"))
 b.append(title(148, 36, "Verteiler Pro (201)"))
 b.append(dot(W - 8, 8, "splitter"))
 files["mll201"] = svg(W, H, "\n".join(b), "MLL201 Universal Verteiler Pro")

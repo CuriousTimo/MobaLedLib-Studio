@@ -157,6 +157,15 @@ button { cursor: default; }
 .chain-row .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
 .chain-group { font-size: 11px; padding: 1px 7px; border-radius: 999px; background: var(--raised); color: var(--text-2); }
 .chain-warn { margin-left: auto; font-size: 11px; color: var(--err); }
+.chain-splitter { border: 1px solid var(--line-2); border-left: 3px solid var(--ok); border-radius: 8px; background: var(--panel-2); }
+.chain-splitter .mod-svg { padding: 10px; }
+.mod-svg svg { display: block; width: 100%; max-width: 560px; height: auto; }
+.mod-svg g.port.unused { opacity: .3; }
+.mod-svg g.port.used > rect:first-of-type { stroke: var(--ok); stroke-width: 1.5; }
+.mod-svg g.port.sel > rect:first-of-type { stroke: var(--accent); stroke-width: 2; }
+.mod-svg g.port.used:hover > rect:first-of-type { stroke: var(--text); }
+.mod-svg g.dip.bridge > rect:first-child { stroke: var(--accent); stroke-width: 1; }
+.chain-warn-line { padding: 0 10px 9px; font-size: 12px; color: var(--err); }
 
 /* ---------- inspector ---------- */
 .inspector { width: 340px; flex: none; border-left: 1px solid var(--line); background: var(--panel); padding: 18px; display: flex; flex-direction: column; gap: 18px; overflow-y: auto; }

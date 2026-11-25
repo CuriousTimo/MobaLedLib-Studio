@@ -30,6 +30,8 @@ const state = {
 
 /** Texts the Excel tool shows too, by id, in the chosen language (ui_texts, mll-core/src/ui_text.rs). */
 let TX = {};
+/** The module library (data/modules): { library, svgs: { file: svg } }; null if it could not be loaded. */
+let MODULES = null;
 function tx(id) { return TX[id] ?? id; }
 async function loadTexts() {
   try { TX = await invoke('ui_texts', { lang: state.lang }); } catch { TX = {}; }
@@ -527,6 +529,43 @@ function renderMain() {
 
 // ---------------------------------------------------------------- rendering: LED chain (issue #18)
 
+// One distributor drawn as the MLL201 from the module library: outputs with rows on them are
+// marked, unused outputs are dimmed and their DIP switch is outlined (the MLL201 bridges an
+// unused output with its DIP switch). Plugs that are no MLL201 output are listed as a warning.
+function splitterHtml(d, plugs) {
+  const mod = MODULES?.library?.modules?.find((m) => m.id === 'mll201');
+  const svg = mod && MODULES.svgs[mod.svg];
+  const head = `<div class="chain-seg-head"><b>${esc(tx('distributor'))} ${esc(d)}</b><span class="muted">drawn as ${esc(mod ? mod.name : 'MLL201')}</span></div>`;
+  if (!svg) return '';
+  const outs = mod.ports.filter((p) => /^out\d+$/.test(p.id)).map((p) => +p.id.slice(3));
+  const sel = rows()[state.sel];
+  const bad = [];
+  const onPlug = new Map();
+  for (const [p, idx] of plugs) {
+    const n = /^\d+$/.test(p) ? +p : NaN;
+    if (outs.includes(n)) onPlug.set(n, idx);
+    else bad.push([p, idx]);
+  }
+  const name = (i) => rows()[i].description || (macroOf(rows()[i].macro_text) ? macroTitle(macroOf(rows()[i].macro_text)) : 'Untitled');
+  let out = svg.replace(/<svg ([^>]*?) width="[^"]*" height="[^"]*"/, '<svg $1');
+  for (const n of outs) {
+    const idx = onPlug.get(n);
+    const tag = `<g class="port" data-port="out${n}">`;
+    if (idx) {
+      const isSel = sel && idx.some((i) => rows()[i] === sel);
+      const title = `Out ${n}: ${idx.map(name).join(', ')}`;
+      out = out.replace(tag, `<g class="port used${isSel ? ' sel' : ''}" data-port="out${n}" data-act="row" data-i="${idx[0]}"><title>${esc(title)}</title>`);
+    } else {
+      out = out.replace(tag, `<g class="port unused" data-port="out${n}"><title>Out ${n}: not used, bridge it with its DIP switch</title>`);
+      out = out.replace(`<g class="dip" data-dip="${n}">`, `<g class="dip bridge" data-dip="${n}">`);
+    }
+  }
+  const warn = bad.length
+    ? `<div class="chain-warn-line">${bad.map(([p, idx]) => `${esc(tx('plug'))} “${esc(p || '–')}” (${esc(idx.map(name).join(', '))}) is not an output of the ${esc(mod.name)} (1–${outs.length}).`).join('<br>')}</div>`
+    : '';
+  return `<div class="chain-splitter">${head}<div class="mod-svg">${out}</div>${warn}</div><div class="chain-link" aria-hidden="true"></div>`;
+}
+
 // How many LED positions a row takes from its start number, as the bus map counts them.
 function rowLedCount(r) {
   const leds = r.leds.trim();
@@ -547,6 +586,21 @@ function chainHtml() {
     channels.get(ch).push(i);
   });
   if (!channels.size) return `<div class="empty">This sheet is empty.</div>`;
+  const splitters = (idx) => {
+    // distributors in the order they first appear in this channel, with the rows on each plug
+    const byDist = new Map();
+    for (const i of idx) {
+      const r = rows()[i];
+      const d = r.distributor.trim();
+      if (!d) continue;
+      if (!byDist.has(d)) byDist.set(d, new Map());
+      const plugs = byDist.get(d);
+      const p = r.plug.trim();
+      if (!plugs.has(p)) plugs.set(p, []);
+      plugs.get(p).push(i);
+    }
+    return [...byDist].map(([d, plugs]) => splitterHtml(d, plugs)).join('');
+  };
   const plugKey = (r) => `${r.distributor.trim()}\u0000${r.plug.trim()}`;
   const parts = [...channels].sort(([x], [y]) => x - y).map(([ch, idx]) => {
     // consecutive rows on the same distributor and plug form one segment of the chain
@@ -590,6 +644,7 @@ function chainHtml() {
     return `
       <section class="chain-channel" aria-label="LED channel ${ch}">
         <div class="chain-head"><b>LED channel ${ch}</b><span class="muted">${a.leds_per_channel[ch] ?? 0} LEDs · ${idx.length} rows</span></div>
+        ${splitters(idx)}
         ${segHtml}
       </section>`;
   }).join('');
@@ -1503,6 +1558,7 @@ listen('tauri://drag-drop', (ev) => {
   try {
     indexCatalog(await invoke('get_catalog'));
     await loadTexts();
+    try { MODULES = await invoke('get_modules'); } catch { MODULES = null; }
   } catch (e) {
     document.body.textContent = 'Could not load the macro catalog: ' + errText(e);
     return;
