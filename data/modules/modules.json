@@ -1,0 +1,259 @@
+{
+  "about": "MobaLedLib hardware modules for a chain view. Not from the Excel workbook: a deliberate exception, the facts come from wiki.mobaledlib.de (source per module). Nothing here changes LEDs_AutoProg.h. 'unconfirmed' lists what no source confirms yet. Ports are the data-port ids in the SVG. 'leds' is how many LED numbers the module takes in the chain, 'channels' how many single outputs (3 per WS2811).",
+  "categories": {
+    "led": { "name": "LED module", "color": "#F5C76A" },
+    "splitter": { "name": "Splitter", "color": "#5BD48A" },
+    "controller": { "name": "Controller", "color": "#5BD48A" },
+    "light": { "name": "Light", "color": "#F5C76A" }
+  },
+  "connectors": {
+    "wanne6": {
+      "name": "6-pin box header (Wannenstecker)",
+      "pins": { "1": "+5V", "2": "data out (to the LEDs)", "3": "GND", "4": "data return (back to the splitter)", "5": "GND", "6": "+12V (optional)" },
+      "source": "https://wiki.mobaledlib.de/anleitungen/bauanleitungen/verteilerplatine_200de"
+    }
+  },
+  "modules": [
+    {
+      "id": "mll101",
+      "name": "LichtMaschine Classic (101)",
+      "svg": "mll101.svg",
+      "category": "controller",
+      "ports": [
+        { "id": "led0", "kind": "led-channel", "channel": 0, "direction": "out" },
+        { "id": "led2", "kind": "led-channel", "channel": 2, "direction": "out" },
+        { "id": "hb_led0", "kind": "heartbeat-led" },
+        { "id": "hb_led2", "kind": "heartbeat-led" },
+        { "id": "can", "kind": "bus" },
+        { "id": "key80", "kind": "inputs" },
+        { "id": "keyboard", "kind": "inputs" }
+      ],
+      "facts": [
+        "2 LED channels, numbered 0 and 2, each fused at 1 A",
+        "each channel has a heartbeat LED at its output and one at its input",
+        "768 single LEDs or 256 RGB LEDs; DCC, CAN, LNet, Selectrix"
+      ],
+      "unconfirmed": [
+        "pin count of each connector (the wiki lists 3x 6-pin, 2x 8-pin, 1x 14-pin)",
+        "whether the heartbeat LEDs take LED numbers in the chain",
+        "DCC and power terminals are not drawn"
+      ],
+      "source": [
+        "https://wiki.mobaledlib.de/anleitungen/bauanleitungen/101_v2/start",
+        "https://wiki.mobaledlib.de/anleitungen/ueberblick_platinen"
+      ]
+    },
+    {
+      "id": "mll201",
+      "name": "Universal Verteiler Pro (201)",
+      "svg": "mll201.svg",
+      "category": "splitter",
+      "leds": 2,
+      "ports": [
+        { "id": "in", "kind": "wanne6", "direction": "in" },
+        { "id": "out1", "kind": "wanne6", "direction": "out-return" },
+        { "id": "out2", "kind": "wanne6", "direction": "out-return" },
+        { "id": "out3", "kind": "wanne6", "direction": "out-return" },
+        { "id": "out4", "kind": "wanne6", "direction": "out-return" },
+        { "id": "out5", "kind": "wanne6", "direction": "out-return" },
+        { "id": "out6", "kind": "wanne6", "direction": "out-return" },
+        { "id": "out7", "kind": "wanne6", "direction": "out-return" },
+        { "id": "out8", "kind": "wanne6", "direction": "out-return" },
+        { "id": "out9", "kind": "wanne6", "direction": "out-return" },
+        { "id": "out10", "kind": "wanne6", "direction": "out-return" },
+        { "id": "out11", "kind": "wanne6", "direction": "out-return" },
+        { "id": "out12", "kind": "wanne6", "direction": "out-return" },
+        { "id": "next", "kind": "wanne6", "direction": "out-return" },
+        { "id": "led_fwd", "kind": "amplifier-led" },
+        { "id": "led_back", "kind": "amplifier-led" }
+      ],
+      "facts": [
+        "12 outputs plus 'Next' to the next splitter; 'Next' is the last channel and has no DIP switch",
+        "a 12-way DIP switch bridges each unused output",
+        "two WS2812 amplify the signal: FWD at the input, BACK in the return path",
+        "the input LED is defined first, the return LED at the end of the chain or of each branch",
+        "separate 5V and 12V terminals, at most 2.5 A per voltage; flat cables are rated at 1 A",
+        "between splitters, chain only 4-pole cables (data only, no power)"
+      ],
+      "unconfirmed": [
+        "the connector pinout is taken from the 200 page; the 201 page says its connectors follow the 200",
+        "the 5V/12V power terminals are not drawn"
+      ],
+      "source": [
+        "https://wiki.mobaledlib.de/anleitungen/bauanleitungen/verteilerplatine_201de",
+        "https://wiki.mobaledlib.de/anleitungen/bauanleitungen/verteilerplatine_200de"
+      ]
+    },
+    {
+      "id": "mll503",
+      "name": "WS2811 Multi-Use v2 (503)",
+      "svg": "mll503.svg",
+      "category": "led",
+      "leds": 12,
+      "channels": 36,
+      "sections": [
+        { "section": 1, "leds": 4, "return": "t1" },
+        { "section": 2, "leds": 4, "return": "t2" },
+        { "section": 3, "leds": 4, "return": "t3" }
+      ],
+      "ports": [
+        { "id": "in", "kind": "wanne6", "direction": "in" },
+        { "id": "t1", "kind": "return-jumper" },
+        { "id": "t2", "kind": "return-jumper" },
+        { "id": "t3", "kind": "return-jumper" },
+        { "id": "dout", "kind": "data", "direction": "out" }
+      ],
+      "facts": [
+        "12 WS2811F chips (v1 had 10), 3 outputs each: up to 36 single LEDs; can also feed series circuits on 12 V",
+        "three sections that can be cut apart",
+        "when nothing follows, solder jumpers T1/T2/T3 loop the signal back to the input: T2 if section 3 is cut off, T1 if sections 2 and 3 are cut off"
+      ],
+      "unconfirmed": [
+        "4 chips per section (12 chips in 3 equal sections)",
+        "positions of the pads and of T1-T3"
+      ],
+      "source": ["https://wiki.mobaledlib.de/anleitungen/bauanleitungen/503de_multi-use_v2"]
+    },
+    {
+      "id": "mll504",
+      "name": "WS2811 Multi-Use Micro (504)",
+      "svg": "mll504.svg",
+      "category": "led",
+      "leds": 2,
+      "channels": 6,
+      "ports": [
+        { "id": "in", "kind": "data", "direction": "in" },
+        { "id": "out", "kind": "data", "direction": "out" },
+        { "id": "5v_in", "kind": "power" },
+        { "id": "gnd_in", "kind": "power" },
+        { "id": "5v_out", "kind": "power" },
+        { "id": "gnd_out", "kind": "power" }
+      ],
+      "facts": [
+        "2 WS2811F chips: six single LEDs, three of them sharing each plus pole",
+        "pad layout like a WS2812B (+5V, data in/out, GND), so it can replace a WS2812B in a chain",
+        "up to about 1 A on its supply tracks"
+      ],
+      "unconfirmed": ["position of the pads"],
+      "source": ["https://wiki.mobaledlib.de/anleitungen/bauanleitungen/504de_ws2811_multi-use-micro_v1"]
+    },
+    {
+      "id": "mll521",
+      "name": "24-Single LED Connector v2 (521)",
+      "svg": "mll521.svg",
+      "category": "led",
+      "leds": 8,
+      "channels": 24,
+      "ports": [
+        { "id": "in", "kind": "wanne6", "direction": "in" },
+        { "id": "out", "kind": "wanne6", "direction": "out-return" }
+      ],
+      "facts": [
+        "8 WS2811F chips: up to 24 single LEDs",
+        "6-pin input and output; the 'Term' jumper in the output loops the signal back to the splitter",
+        "separate 5V and 12V terminals; two-pole 12 V outputs for series circuits",
+        "unused chips must be reserved with 'Reserve LEDs'",
+        "24 x 18.5 mA = about 444 mA at full brightness"
+      ],
+      "unconfirmed": ["outputs 13-24 on the upper terminal row"],
+      "source": ["https://wiki.mobaledlib.de/anleitungen/bauanleitungen/521de_single_connector_v2"]
+    },
+    {
+      "id": "mll295",
+      "name": "TinyHouse (295)",
+      "svg": "mll295.svg",
+      "category": "led",
+      "channels": 6,
+      "ports": [
+        { "id": "in", "kind": "wanne6", "direction": "in" },
+        { "id": "led1", "kind": "single-outputs", "channels": 3 },
+        { "id": "led2", "kind": "single-outputs", "channels": 3 },
+        { "id": "rgb3", "kind": "rgb-output", "direction": "out-return" },
+        { "id": "rgb4", "kind": "rgb-output", "direction": "out-return" },
+        { "id": "rgb5", "kind": "rgb-output", "direction": "out-return" },
+        { "id": "heartbeat", "kind": "heartbeat-led" }
+      ],
+      "facts": [
+        "six single LED outputs (LED1, LED2: R+, G+, B+), 5V or 12V per group of three by a solder jumper",
+        "three RGB outputs (LED3-LED5: 5V, GND, data in/out), each with a solder jumper (NoLED, Skip4+5, ...); a jumper disables all following outputs, so fill them from right to left",
+        "an onboard RGB heartbeat LED at the end of the data bus"
+      ],
+      "unconfirmed": [
+        "number of LED numbers taken (depends on what is connected to LED3-LED5)",
+        "the vertical pin row next to the input (5V DI GN DO GN 12V) is not drawn"
+      ],
+      "source": ["https://wiki.mobaledlib.de/anleitungen/bauanleitungen/295_tinyhouse"]
+    },
+    {
+      "id": "ws2811",
+      "name": "WS2811 breakout",
+      "svg": "ws2811.svg",
+      "category": "led",
+      "leds": 1,
+      "channels": 3,
+      "ports": [
+        { "id": "out", "kind": "data", "direction": "out" },
+        { "id": "5v", "kind": "power" },
+        { "id": "gnd", "kind": "power" },
+        { "id": "led_r", "kind": "channel", "channel": 1 },
+        { "id": "led_g", "kind": "channel", "channel": 2 },
+        { "id": "led_b", "kind": "channel", "channel": 3 },
+        { "id": "led_plus", "kind": "common-plus" }
+      ],
+      "facts": [
+        "single WorldSemi WS2811B board, 5 V, sold as a breakaway panel of 10 x 10",
+        "front: LED pads B, G, +, R (left, top to bottom); +, DO, - (right)"
+      ],
+      "unconfirmed": [
+        "where DI is (not on the front; probably the back)",
+        "which pad gets which byte of the LED (some WS2811 variants use G-R-B order)"
+      ],
+      "source": ["photo of the board (owner)"]
+    },
+    {
+      "id": "ws2812",
+      "name": "WS2812",
+      "svg": "ws2812.svg",
+      "category": "led",
+      "leds": 1,
+      "channels": 3,
+      "ports": [
+        { "id": "in", "kind": "data", "direction": "in" },
+        { "id": "out", "kind": "data", "direction": "out" }
+      ],
+      "facts": ["RGB LED with an integrated WS2811 chip; three constant-current outputs of 18.5 mA"],
+      "source": ["https://wiki.mobaledlib.de/start"]
+    },
+    {
+      "id": "led",
+      "name": "Single LED",
+      "svg": "led.svg",
+      "category": "light",
+      "channels_used": 1,
+      "ports": [{ "id": "in", "kind": "channel-input" }],
+      "facts": ["a plain LED on one WS2811 output; takes no LED number of its own"]
+    },
+    {
+      "id": "lamp",
+      "name": "Lamp",
+      "svg": "lamp.svg",
+      "category": "light",
+      "channels_used": 1,
+      "ports": [{ "id": "in", "kind": "channel-input" }],
+      "facts": ["one WS2811 output; lit through the CSS variables --lamp-color and --lamp-level (0..1)"]
+    },
+    {
+      "id": "lamp-rgb",
+      "name": "RGB lamp",
+      "svg": "lamp-rgb.svg",
+      "category": "light",
+      "channels_used": 3,
+      "ports": [
+        { "id": "r", "kind": "channel-input" },
+        { "id": "g", "kind": "channel-input" },
+        { "id": "b", "kind": "channel-input" }
+      ],
+      "facts": ["a plain RGB LED on the three outputs of one WS2811; lit through the CSS variables --r, --g, --b (0..255)"]
+    }
+  ]
+}

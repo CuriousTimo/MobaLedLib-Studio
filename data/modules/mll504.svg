@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 90 50" width="180" height="100">
+<title>MLL504 WS2811 Multi-Use Micro</title>
+<rect x="0.5" y="0.5" width="89" height="49" rx="5" fill="#1F4C8A" stroke="#3667AC"/>
+<g class="port" data-port="5v_in"><rect x="4" y="8" width="5" height="5" rx="1" fill="#D9B44A"/></g><text x="12" y="12" font-size="5" text-anchor="start" fill="#EEF2F7" font-family="JetBrains Mono, ui-monospace, Menlo, monospace">5V</text>
+<g class="port" data-port="in"><rect x="4" y="19" width="5" height="5" rx="1" fill="#D9B44A"/></g><text x="12" y="23" font-size="5" text-anchor="start" fill="#EEF2F7" font-family="JetBrains Mono, ui-monospace, Menlo, monospace">DI</text>
+<g class="port" data-port="gnd_in"><rect x="4" y="30" width="5" height="5" rx="1" fill="#D9B44A"/></g><text x="12" y="34" font-size="5" text-anchor="start" fill="#EEF2F7" font-family="JetBrains Mono, ui-monospace, Menlo, monospace">GND</text>
+<g class="port" data-port="5v_out"><rect x="81" y="8" width="5" height="5" rx="1" fill="#D9B44A"/></g><text x="78" y="12" font-size="5" text-anchor="end" fill="#EEF2F7" font-family="JetBrains Mono, ui-monospace, Menlo, monospace">5V</text>
+<g class="port" data-port="out"><rect x="81" y="19" width="5" height="5" rx="1" fill="#D9B44A"/></g><text x="78" y="23" font-size="5" text-anchor="end" fill="#EEF2F7" font-family="JetBrains Mono, ui-monospace, Menlo, monospace">DO</text>
+<g class="port" data-port="gnd_out"><rect x="81" y="30" width="5" height="5" rx="1" fill="#D9B44A"/></g><text x="78" y="34" font-size="5" text-anchor="end" fill="#EEF2F7" font-family="JetBrains Mono, ui-monospace, Menlo, monospace">GND</text>
+<rect x="34" y="9" width="10" height="7" rx="1" fill="#14171C"/><rect x="47" y="9" width="10" height="7" rx="1" fill="#14171C"/>
+<rect x="29" y="25" width="3" height="6" rx="1" fill="#D9B44A"/>
+<rect x="35" y="25" width="3" height="6" rx="1" fill="#D9B44A"/>
+<rect x="41" y="25" width="3" height="6" rx="1" fill="#D9B44A"/>
+<rect x="47" y="25" width="3" height="6" rx="1" fill="#D9B44A"/>
+<rect x="53" y="25" width="3" height="6" rx="1" fill="#D9B44A"/>
+<rect x="59" y="25" width="3" height="6" rx="1" fill="#D9B44A"/>
+<text x="45.0" y="45" font-size="6.5" text-anchor="middle" fill="#EEF2F7" font-weight="700" font-family="JetBrains Mono, ui-monospace, Menlo, monospace">Micro (504)</text>
+<circle cx="83" cy="43" r="3" fill="#F5C76A"/>
+</svg>
