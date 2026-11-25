@@ -40,6 +40,21 @@ pub struct Diagnostic {
     pub message: String,
 }
 
+/// The LEDs of each channel as the header counts them (at least `MIN_LEDS` in all, the rest on
+/// channel 0) and the first LED of each channel in the `leds[]` array (`Start_LED_Channel`).
+pub fn channel_layout(per_channel: &[i64; LED_CHANNELS]) -> ([i64; LED_CHANNELS], [i64; LED_CHANNELS]) {
+    let mut leds = *per_channel;
+    let num: i64 = leds.iter().sum();
+    if num < MIN_LEDS {
+        leds[0] += MIN_LEDS - num;
+    }
+    let mut start = [0i64; LED_CHANNELS];
+    for nr in 1..LED_CHANNELS {
+        start[nr] = start[nr - 1] + leds[nr - 1];
+    }
+    (leds, start)
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct Generated {
     pub header: String,
@@ -47,6 +62,9 @@ pub struct Generated {
     /// Number of used input channels (InCh)
     pub input_channels: i64,
     pub warnings: Vec<Diagnostic>,
+    /// Per row: the `#define` of its first input channel (e.g. `INCH_DCC_10_RED`) when the row has an
+    /// address; the row's InCnt channels follow it. For the simulator, not part of the header.
+    pub row_inputs: Vec<Option<String>>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -458,6 +476,7 @@ struct Gen<'a> {
     page_id: &'static str,
     sx: bool,
     led_numbers: leds::LedNumbers,
+    row_inputs: Vec<Option<String>>,
 
     addr_list: Vec<i64>,
     loc_in_ch_nr: i64,
@@ -499,15 +518,7 @@ struct Gen<'a> {
 impl<'a> Gen<'a> {
     fn new(layout: &'a Layout, sheet: &'a Sheet, catalog: &'a Catalog) -> Self {
         let led_numbers = leds::compute(sheet);
-        let mut leds_per_channel = led_numbers.per_channel;
-        let num: i64 = leds_per_channel.iter().sum();
-        if num < MIN_LEDS {
-            leds_per_channel[0] += MIN_LEDS - num;
-        }
-        let mut start_led_channel = [0i64; LED_CHANNELS];
-        for nr in 1..LED_CHANNELS {
-            start_led_channel[nr] = start_led_channel[nr - 1] + leds_per_channel[nr - 1];
-        }
+        let (leds_per_channel, start_led_channel) = channel_layout(&led_numbers.per_channel);
         let max_channels = (0..LED_CHANNELS).rev().find(|&n| leds_per_channel[n] > 0).unwrap_or(0);
         Gen {
             sheet,
@@ -515,6 +526,7 @@ impl<'a> Gen<'a> {
             catalog,
             page_id: sheet.protocol.page_id(),
             sx: sheet.protocol == Protocol::Selectrix,
+            row_inputs: vec![None; sheet.rows.len()],
             led_numbers,
             addr_list: Vec::new(),
             loc_in_ch_nr: 0,
@@ -1485,6 +1497,7 @@ impl<'a> Gen<'a> {
                     return;
                 };
                 typ = Some(t);
+                self.row_inputs[r] = Some(self.define_name(a, t).trim_end().to_string());
                 if self.address_range_exists(a, in_cnt, t) {
                     cod = self.define_name(a, t);
                     if !self.in_ch_txt.contains(&cod) {
@@ -2413,7 +2426,13 @@ pub fn generate(
     if !g.errors.is_empty() {
         return Err(GenerateError { errors: g.errors });
     }
-    Ok(Generated { header, num_leds: g.leds_per_channel.iter().sum(), input_channels: g.channel, warnings: g.warnings })
+    Ok(Generated {
+        header,
+        num_leds: g.leds_per_channel.iter().sum(),
+        input_channels: g.channel,
+        warnings: g.warnings,
+        row_inputs: g.row_inputs,
+    })
 }
 
 #[cfg(test)]
@@ -2499,6 +2518,9 @@ mod tests {
         assert!(h.contains("           { IS_TOGGLE + 1 , INCH_DCC_1_ONOFF    },      // Haus"));
         assert!(h.contains("#define ADDR_OFFSET 0"));
         assert_eq!(g.input_channels, 4);
+        // for the simulator: the first input define of each row
+        let named: Vec<&str> = g.row_inputs.iter().flatten().map(|s| s.as_str()).collect();
+        assert_eq!(named, ["INCH_DCC_1_ONOFF", "INCH_DCC_10_RED"]);
     }
 
     #[test]

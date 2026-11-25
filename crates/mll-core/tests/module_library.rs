@@ -99,6 +99,13 @@ fn signal_drives_fit_the_catalog_and_the_drawing() {
                 let def = cat.macros.iter().find(|x| &x.name == name);
                 let def = def.unwrap_or_else(|| panic!("{}: {name} is not in the catalog", m.id));
                 let have = macro_outputs(&def.leds).unwrap_or_else(|| panic!("{name}: LEDs {:?}", def.leds));
+                let in_cnt: u32 = def.in_cnt.parse().unwrap_or_else(|_| panic!("{name}: InCnt {:?}", def.in_cnt));
+                let states = if name.contains("Bin") { 1 << in_cnt } else { in_cnt };
+                let n = d.aspects.len() as u32;
+                assert!(n > 0 && n <= states, "{}: {name} has {states} input states, {n} aspects", m.id);
+                if !name.contains("Bin") {
+                    assert_eq!(n, states, "{}: {name}: one aspect per input", m.id);
+                }
                 for (lamp, out) in &d.lamps {
                     assert!(ports.contains(lamp.as_str()), "{}: lamp {lamp} is no port", m.id);
                     let o = Output::parse(out).unwrap_or_else(|| panic!("{}: output {out}", m.id));

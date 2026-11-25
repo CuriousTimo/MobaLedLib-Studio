@@ -150,6 +150,8 @@ struct Analysis {
     /// Start LED of each row (None = inactive)
     led_numbers: Vec<Option<i64>>,
     leds_per_channel: Vec<i64>,
+    /// First LED of each channel in the simulator's `leds[]` (the header's channel offsets)
+    channel_start: Vec<i64>,
     total_leds: i64,
     /// Problems found by a trial generation of the header
     errors: Vec<Diagnostic>,
@@ -187,6 +189,7 @@ fn analyze(layout: Layout, sheet: usize, lang: Option<String>) -> Result<Analysi
         total_leds: numbers.total(),
         led_numbers: numbers.rows,
         leds_per_channel: numbers.per_channel.to_vec(),
+        channel_start: codegen::channel_layout(&numbers.per_channel).1.to_vec(),
         errors,
         warnings,
         input_channels,
@@ -239,9 +242,10 @@ async fn sim_start(
     sheet: usize,
     lang: Option<String>,
 ) -> Result<simulate::Started, String> {
-    let header =
-        codegen::generate(&layout, sheet, catalog(), &gen_options(lang.as_deref())).map_err(|e| e.to_string())?.header;
-    tauri::async_runtime::spawn_blocking(move || simulate::start(&app, &header)).await.map_err(|e| e.to_string())?
+    let g = codegen::generate(&layout, sheet, catalog(), &gen_options(lang.as_deref())).map_err(|e| e.to_string())?;
+    tauri::async_runtime::spawn_blocking(move || simulate::start(&app, &g.header, &g.row_inputs))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]

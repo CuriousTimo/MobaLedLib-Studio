@@ -78,6 +78,9 @@ pub struct Section {
 pub struct Drive {
     /// Macro names of the catalog that light the lamps the same way.
     pub macros: Vec<String>,
+    /// The aspect of each input state: state n is input InCh+n (for `Bin` macros the binary value n).
+    #[serde(default)]
+    pub aspects: Vec<String>,
     /// Lamp port -> output: `Cn` the n-th single output from the macro's LED (WS2811, from 1),
     /// `Ln` the n-th WS2812 after it (from 0). Two lamps may share an output.
     pub lamps: BTreeMap<String, String>,

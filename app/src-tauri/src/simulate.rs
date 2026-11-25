@@ -27,6 +27,19 @@ pub struct Input {
 pub struct Started {
     pub num_leds: u16,
     pub inputs: Vec<Input>,
+    /// Per row of the sheet: its first input channel, if it has an address
+    pub row_inputs: Vec<Option<u8>>,
+}
+
+/// The channel of each row's first input `#define` (from [`mll_core::codegen::Generated::row_inputs`]).
+pub fn row_channels(inputs: &[Input], row_inputs: &[Option<String>]) -> Vec<Option<u8>> {
+    row_inputs
+        .iter()
+        .map(|d| {
+            let name = d.as_deref()?.strip_prefix("INCH_")?;
+            inputs.iter().find(|i| i.name == name).map(|i| i.channel)
+        })
+        .collect()
 }
 
 /// The input channels named in the header.
@@ -209,10 +222,12 @@ fn run_loop(app: AppHandle, cfg: SimConfig, rx: Receiver<Cmd>) {
     }
 }
 
-pub fn start(app: &AppHandle, header: &str) -> Result<Started, String> {
+pub fn start(app: &AppHandle, header: &str, row_inputs: &[Option<String>]) -> Result<Started, String> {
     stop();
     let cfg = config(app, header)?;
-    let started = Started { num_leds: cfg.num_leds, inputs: inputs(header) };
+    let inputs = inputs(header);
+    let row_inputs = row_channels(&inputs, row_inputs);
+    let started = Started { num_leds: cfg.num_leds, inputs, row_inputs };
     let (tx, rx) = mpsc::channel();
     let app2 = app.clone();
     let thread = std::thread::spawn(move || run_loop(app2, cfg, rx));
@@ -237,6 +252,13 @@ pub fn stop() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn row_channels_by_define() {
+        let inputs = inputs("#define INCH_DCC_1_ONOFF  0 // A\n#define INCH_DCC_10_RED  1 // B\n");
+        let rows = [Some("INCH_DCC_10_RED".to_string()), None, Some("INCH_DCC_99_RED".to_string())];
+        assert_eq!(row_channels(&inputs, &rows), [Some(1), None, None]);
+    }
 
     #[test]
     fn inputs_from_the_header() {

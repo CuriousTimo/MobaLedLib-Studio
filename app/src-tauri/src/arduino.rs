@@ -82,18 +82,28 @@ pub(crate) fn run_json(cli: &Path, args: &[&str]) -> Result<Value, String> {
     serde_json::from_slice(&out.stdout).map_err(|e| format!("arduino-cli output: {e}"))
 }
 
-/// The Arduino "sketchbook" folder, which contains `libraries/`.
-fn user_dir(cli: &Path) -> Option<PathBuf> {
+/// A directory setting of arduino-cli. `config get` also gives the defaults; `config dump` of
+/// arduino-cli 1.x lists only what is set in its config file, which is empty after a plain install.
+fn config_dir(cli: &Path, key: &str) -> Option<PathBuf> {
+    if let Some(p) =
+        run_json(cli, &["config", "get", key, "--format", "json"]).ok().and_then(|v| v.as_str().map(PathBuf::from))
+    {
+        return Some(p);
+    }
+    // older arduino-cli without `config get`
     let v = run_json(cli, &["config", "dump", "--format", "json"]).ok()?;
     let dirs = v.get("config").unwrap_or(&v).get("directories")?;
-    dirs.get("user").and_then(|u| u.as_str()).map(PathBuf::from)
+    dirs.get(key.trim_start_matches("directories.")).and_then(|u| u.as_str()).map(PathBuf::from)
+}
+
+/// The Arduino "sketchbook" folder, which contains `libraries/`.
+fn user_dir(cli: &Path) -> Option<PathBuf> {
+    config_dir(cli, "directories.user")
 }
 
 /// The Arduino data folder, which contains the installed board packages and tools (`packages/`).
 pub(crate) fn data_dir(cli: &Path) -> Option<PathBuf> {
-    let v = run_json(cli, &["config", "dump", "--format", "json"]).ok()?;
-    let dirs = v.get("config").unwrap_or(&v).get("directories")?;
-    dirs.get("data").and_then(|u| u.as_str()).map(PathBuf::from)
+    config_dir(cli, "directories.data")
 }
 
 pub(crate) fn installed_sketch(cli: &Path) -> Option<PathBuf> {
