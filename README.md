@@ -9,6 +9,8 @@
 > generated `LEDs_AutoProg.h` has not yet been compared with the output of the Excel tool. Do not rely on
 > it for your layout yet. Test reports are very welcome (see [Help wanted](#help-wanted-testing)).
 
+**📖 Manual:** the [MobaLedLib Studio wiki](https://github.com/CuriousTimo/MobaLedLib-Studio/wiki) explains installation, the editor, the chain view, the simulator and uploading, step by step with screenshots.
+
 > [!NOTE]
 > This is an independent community project. It is **not** made or endorsed by the MobaLedLib authors.
 
@@ -149,6 +151,8 @@ The most useful contribution right now:
    `START_MSG`, they should be identical. Please open an issue with any difference.
 
 ## Install
+
+Step by step, with screenshots: [Installation](https://github.com/CuriousTimo/MobaLedLib-Studio/wiki/Installation) in the wiki.
 
 Download the installer for your system from the [Releases](https://github.com/CuriousTimo/MobaLedLib-Studio/releases) page:
 
