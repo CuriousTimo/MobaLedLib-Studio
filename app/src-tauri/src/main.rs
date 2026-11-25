@@ -11,7 +11,7 @@ use std::sync::OnceLock;
 
 use mll_core::catalog::{FilledMacro, LANGUAGES};
 use mll_core::codegen::{self, Diagnostic, GenOptions};
-use mll_core::leds;
+use mll_core::{leds, modules};
 use mll_core::model::{Platform, Protocol};
 use mll_core::{pgf, Catalog, Layout};
 use serde::Serialize;
@@ -39,6 +39,21 @@ struct Opened {
 #[tauri::command]
 fn get_catalog() -> &'static Catalog {
     catalog()
+}
+
+/// The module library (data/modules) with its drawings, for the chain view (issue #18).
+#[derive(Serialize)]
+struct ModuleLibrary {
+    library: &'static modules::Library,
+    svgs: BTreeMap<&'static str, &'static str>,
+}
+
+#[tauri::command]
+fn get_modules() -> ModuleLibrary {
+    static LIBRARY: OnceLock<modules::Library> = OnceLock::new();
+    let library = LIBRARY.get_or_init(modules::Library::bundled);
+    let svgs = modules::bundled_svg_files().filter_map(|f| modules::bundled_svg(f).map(|s| (f, s))).collect();
+    ModuleLibrary { library, svgs }
 }
 
 #[tauri::command]
@@ -461,6 +476,7 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             get_catalog,
+            get_modules,
             ui_texts,
             new_layout,
             open_layout,
