@@ -7,6 +7,7 @@ pub mod gen_text;
 pub mod lang;
 pub mod leds;
 pub mod model;
+pub mod modules;
 pub mod pgf;
 pub mod ui_text;
 pub mod vba;
