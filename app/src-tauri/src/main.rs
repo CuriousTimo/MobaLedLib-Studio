@@ -11,8 +11,8 @@ use std::sync::OnceLock;
 
 use mll_core::catalog::{FilledMacro, LANGUAGES};
 use mll_core::codegen::{self, Diagnostic, GenOptions};
-use mll_core::{leds, modules};
 use mll_core::model::{Platform, Protocol};
+use mll_core::{leds, modules};
 use mll_core::{pgf, Catalog, Layout};
 use serde::Serialize;
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
