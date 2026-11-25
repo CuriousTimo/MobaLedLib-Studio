@@ -648,7 +648,7 @@ function simSignalsHtml(m) {
     const buttons = s.first == null
       ? '<span class="muted">no address</span>'
       : s.sig.drive.aspects.map((name, k) => `<button class="btn ${k === cur ? 'primary' : ''}" data-act="sim-aspect" data-i="${s.i}" data-k="${k}">${esc(name)}</button>`).join('');
-    return `<figure class="sim-signal">${signalHtml(s.sig, signalBase(s.i), s.i)}<figcaption>${esc(s.r.description || macroTitle(s.mac))}</figcaption><div class="sim-aspects">${buttons}</div></figure>`;
+    return `<figure class="sim-signal"><div class="sim-signal-art">${signalHtml(s.sig, signalBase(s.i), s.i)}</div><figcaption>${esc(s.r.description || macroTitle(s.mac))}</figcaption><div class="sim-aspects">${buttons}</div></figure>`;
   }).join('');
   return items ? `<div class="sim-signals">${items}</div>` : '';
 }
