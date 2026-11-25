@@ -23,6 +23,7 @@ const state = {
   groupSel: new Map(), // group ("" = all) -> the row last selected in it
   query: '',
   analysis: null,
+  view: 'table',       // main area: 'table' or 'chain' (the LED chain, read only; issue #18)
   modal: null,         // { type: 'picker' | 'upload' | 'header' | 'settings' | 'sheet', ... }
   lang: storedLang(),
 };
@@ -509,15 +510,90 @@ function renderMain() {
       </div>
       <label class="search">${ICON.search}<span class="sr-only">Filter</span>
         <input type="search" id="query" placeholder="Filter…" value="${esc(state.query)}"></label>
+      <div class="seg" role="group" aria-label="View">
+        <button aria-pressed="${state.view === 'table'}" data-act="view" data-v="table">Table</button>
+        <button aria-pressed="${state.view === 'chain'}" data-act="view" data-v="chain">Chain</button>
+      </div>
       <button class="btn solid" data-act="add">${ICON.plus} Add effect</button>
     </div>
-    <div class="table" role="grid">
+    ${state.view === 'chain' ? chainHtml() : `<div class="table" role="grid">
       <div class="table-inner">
         <div class="trow thead" role="row"><span>${esc(tx('active'))}</span><span>${esc(tx('description'))}</span><span>${esc(tx(s.protocol === 'Selectrix' ? 'sx_channel' : 'address'))}</span><span>${esc(tx('effect'))}</span><span>Output</span><span>${esc(tx('distributor_plug'))}</span><span></span></div>
         <div class="tbody">${body || `<div class="empty">${rows().length ? 'No effect matches the filter.' : 'This sheet is empty.'}<br><button class="btn primary" data-act="add">${ICON.plus} Add the first effect</button></div>`}</div>
       </div>
     </div>
-    ${busmapHtml()}`;
+    ${busmapHtml()}`}`;
+}
+
+// ---------------------------------------------------------------- rendering: LED chain (issue #18)
+
+// How many LED positions a row takes from its start number, as the bus map counts them.
+function rowLedCount(r) {
+  const leds = r.leds.trim();
+  if (!leds) return 0;
+  return /C/.test(leds) ? 1 : Math.max(parseInt(leds, 10) || 0, 0);
+}
+
+// The LED chain, read only: per LED channel the rows in chain order, grouped by the
+// "Verteiler / Stecker" columns (documentation in the Excel tool). The table stays leading:
+// this view never changes rows, their order or their checkboxes.
+function chainHtml() {
+  const a = state.analysis;
+  if (!a) return '<div class="empty">…</div>';
+  const channels = new Map();
+  rows().forEach((r, i) => {
+    const ch = r.led_channel ?? 0;
+    if (!channels.has(ch)) channels.set(ch, []);
+    channels.get(ch).push(i);
+  });
+  if (!channels.size) return `<div class="empty">This sheet is empty.</div>`;
+  const plugKey = (r) => `${r.distributor.trim()}\u0000${r.plug.trim()}`;
+  const parts = [...channels].sort(([x], [y]) => x - y).map(([ch, idx]) => {
+    // consecutive rows on the same distributor and plug form one segment of the chain
+    const segs = [];
+    for (const i of idx) {
+      const k = plugKey(rows()[i]);
+      if (!segs.length || segs[segs.length - 1].key !== k) segs.push({ key: k, rows: [] });
+      segs[segs.length - 1].rows.push(i);
+    }
+    const seen = new Map();
+    segs.forEach((g) => seen.set(g.key, (seen.get(g.key) || 0) + 1));
+    const segHtml = segs.map((g) => {
+      const r0 = rows()[g.rows[0]];
+      const d = r0.distributor.trim(), p = r0.plug.trim();
+      const title = d || p
+        ? `<b>${esc(tx('distributor'))} ${esc(d || '–')}</b><span class="muted">·</span><b>${esc(tx('plug'))} ${esc(p || '–')}</b>`
+        : `<span class="muted">No distributor or plug entered</span>`;
+      const split = (d || p) && seen.get(g.key) > 1
+        ? `<span class="chain-warn" title="The same distributor and plug appear again elsewhere in this channel, with other rows in between. The chain passes a plug once.">also elsewhere in the chain</span>` : '';
+      const items = g.rows.map((i) => {
+        const r = rows()[i];
+        const m = macroOf(r.macro_text);
+        const kind = outputKind(r, m);
+        const start = a.led_numbers[i];
+        const n = rowLedCount(r);
+        let pos;
+        if (start == null) pos = '<span class="muted">off</span>';
+        else if (kind === 'logic' || n === 0) pos = '<span class="muted">no LED</span>';
+        else if (/C/.test(r.leds)) pos = `#${start} <span class="muted">${esc(r.leds.replace('^', '').trim())}</span>`;
+        else pos = n === 1 ? `#${start}` : `#${start}–${start + n - 1}`;
+        return `
+          <div class="chain-row ${r.enabled ? '' : 'off'} ${kind}" data-act="row" data-i="${i}" aria-selected="${i === state.sel}">
+            <span class="mono pos">${pos}</span>
+            <span class="grow">${esc(r.description || (m ? macroTitle(m) : 'Untitled'))}</span>
+            <span class="muted">${esc(m ? macroTitle(m) : r.macro_text.split('(')[0])}</span>
+            ${r.filter.trim() ? `<span class="chain-group">${esc(r.filter.trim())}</span>` : ''}
+          </div>`;
+      }).join('');
+      return `<div class="chain-seg"><div class="chain-seg-head">${title}${split}</div>${items}</div>`;
+    }).join('<div class="chain-link" aria-hidden="true"></div>');
+    return `
+      <section class="chain-channel" aria-label="LED channel ${ch}">
+        <div class="chain-head"><b>LED channel ${ch}</b><span class="muted">${a.leds_per_channel[ch] ?? 0} LEDs · ${idx.length} rows</span></div>
+        ${segHtml}
+      </section>`;
+  }).join('');
+  return `<div class="chain">${parts}<div class="hint">The chain in the order of the table. Groups come from the columns “${esc(tx('distributor_plug'))}”. This view does not change the table.</div></div>`;
 }
 
 function busmapHtml() {
@@ -1277,6 +1353,7 @@ async function perform(act, t = null, i = -1) {
 
     // rows
     case 'row': if (state.sel !== i) { state.sel = i; renderMain(); renderInspector(); } break;
+    case 'view': state.view = t.dataset.v; renderMain(); break;
     case 'toggle': rows()[i].enabled = !rows()[i].enabled; changed(); break;
     case 'add': if (state.layout) openPicker(-1); break;
     case 'change': if (rows()[state.sel]) openPicker(state.sel); break;
@@ -1444,4 +1521,5 @@ listen('tauri://drag-drop', (ev) => {
   else if (opt.view === 'upload') openUpload();
   else if (opt.view === 'settings') { state.modal = { type: 'settings' }; renderModal(); }
   else if (opt.view === 'simulate') openSimulate();
+  else if (opt.view === 'chain') { state.view = 'chain'; renderMain(); }
 })();

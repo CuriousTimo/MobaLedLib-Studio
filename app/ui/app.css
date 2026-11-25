@@ -139,6 +139,25 @@ button { cursor: default; }
 .cells div.sel { outline: 2px solid var(--accent); outline-offset: 1px; }
 .cells div.dim { opacity: .25; }
 
+/* ---------- LED chain view (read only, issue #18) ---------- */
+.chain { display: flex; flex-direction: column; gap: 14px; flex: none; }
+.chain-channel { border: 1px solid var(--line); border-radius: 10px; background: var(--panel); padding: 12px 14px; display: flex; flex-direction: column; }
+.chain-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 10px; font-size: 13px; }
+.chain-seg { border: 1px solid var(--line-2); border-left: 3px solid var(--ok); border-radius: 8px; background: var(--panel-2); }
+.chain-seg-head { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-bottom: 1px solid var(--line-soft); font-size: 12px; }
+.chain-link { width: 2px; height: 12px; margin-left: 22px; background: var(--line-2); }
+.chain-row { display: flex; align-items: center; gap: 12px; padding: 6px 10px; font-size: 12px; border-bottom: 1px solid var(--line-soft); }
+.chain-row:last-child { border-bottom: 0; }
+.chain-row:hover { background: #181C22; }
+.chain-row[aria-selected="true"] { background: var(--selected); box-shadow: inset 2px 0 0 var(--accent); }
+.chain-row.off { opacity: .45; }
+.chain-row .pos { min-width: 92px; color: var(--light); }
+.chain-row.servo .pos { color: var(--motion); }
+.chain-row.sound .pos { color: var(--sound); }
+.chain-row .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+.chain-group { font-size: 11px; padding: 1px 7px; border-radius: 999px; background: var(--raised); color: var(--text-2); }
+.chain-warn { margin-left: auto; font-size: 11px; color: var(--err); }
+
 /* ---------- inspector ---------- */
 .inspector { width: 340px; flex: none; border-left: 1px solid var(--line); background: var(--panel); padding: 18px; display: flex; flex-direction: column; gap: 18px; overflow-y: auto; }
 .section { display: flex; flex-direction: column; gap: 10px; }
