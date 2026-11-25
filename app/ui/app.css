@@ -153,9 +153,21 @@ button { cursor: default; }
 .chain-row.off { opacity: .45; }
 .chain-signal { flex: none; height: 64px; display: flex; }
 .chain-signal svg { height: 100%; width: auto; }
+#sim-leds { display: flex; flex-direction: column; gap: 10px; }
+.sim-strip { display: flex; flex-direction: column; gap: 6px; }
+.sim-strip-head { font-size: 12px; font-weight: 600; }
+.sim-strip-leds { display: flex; flex-wrap: wrap; gap: 6px; }
+.sim-strip .led { width: 18px; height: 18px; border-radius: 50%; border: 1px solid var(--line, #8884); background: #000; }
+.sim-strip .led.hl { outline: 2px solid var(--accent, #F5C76A); outline-offset: 2px; }
+.sim-input.hl { outline: 2px solid var(--accent, #F5C76A); outline-offset: 2px; }
+.sim-signal.hl { outline: 2px solid var(--accent, #F5C76A); outline-offset: 4px; border-radius: 6px; }
+.sim-strip .led.unused { border-style: dashed; opacity: .5; }
 .sim-signals { display: flex; flex-wrap: wrap; gap: 14px; align-items: flex-end; }
 .sim-signal { margin: 0; display: flex; flex-direction: column; align-items: center; gap: 6px; font-size: 11px; color: var(--muted, #9BA4AF); max-width: 140px; text-align: center; }
 .sim-signal .chain-signal { height: 110px; }
+.sim-signal { max-width: 220px; }
+.sim-aspects { display: flex; flex-wrap: wrap; gap: 4px; justify-content: center; }
+.sim-aspects .btn { padding: 2px 7px; font-size: 11px; }
 .chain-row .pos { min-width: 92px; color: var(--light); }
 .chain-row.servo .pos { color: var(--motion); }
 .chain-row.sound .pos { color: var(--sound); }

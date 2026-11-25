@@ -242,9 +242,10 @@ async fn sim_start(
     sheet: usize,
     lang: Option<String>,
 ) -> Result<simulate::Started, String> {
-    let header =
-        codegen::generate(&layout, sheet, catalog(), &gen_options(lang.as_deref())).map_err(|e| e.to_string())?.header;
-    tauri::async_runtime::spawn_blocking(move || simulate::start(&app, &header)).await.map_err(|e| e.to_string())?
+    let g = codegen::generate(&layout, sheet, catalog(), &gen_options(lang.as_deref())).map_err(|e| e.to_string())?;
+    tauri::async_runtime::spawn_blocking(move || simulate::start(&app, &g.header, &g.row_inputs))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
