@@ -40,6 +40,21 @@ pub struct Diagnostic {
     pub message: String,
 }
 
+/// The LEDs of each channel as the header counts them (at least `MIN_LEDS` in all, the rest on
+/// channel 0) and the first LED of each channel in the `leds[]` array (`Start_LED_Channel`).
+pub fn channel_layout(per_channel: &[i64; LED_CHANNELS]) -> ([i64; LED_CHANNELS], [i64; LED_CHANNELS]) {
+    let mut leds = *per_channel;
+    let num: i64 = leds.iter().sum();
+    if num < MIN_LEDS {
+        leds[0] += MIN_LEDS - num;
+    }
+    let mut start = [0i64; LED_CHANNELS];
+    for nr in 1..LED_CHANNELS {
+        start[nr] = start[nr - 1] + leds[nr - 1];
+    }
+    (leds, start)
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct Generated {
     pub header: String,
@@ -499,15 +514,7 @@ struct Gen<'a> {
 impl<'a> Gen<'a> {
     fn new(layout: &'a Layout, sheet: &'a Sheet, catalog: &'a Catalog) -> Self {
         let led_numbers = leds::compute(sheet);
-        let mut leds_per_channel = led_numbers.per_channel;
-        let num: i64 = leds_per_channel.iter().sum();
-        if num < MIN_LEDS {
-            leds_per_channel[0] += MIN_LEDS - num;
-        }
-        let mut start_led_channel = [0i64; LED_CHANNELS];
-        for nr in 1..LED_CHANNELS {
-            start_led_channel[nr] = start_led_channel[nr - 1] + leds_per_channel[nr - 1];
-        }
+        let (leds_per_channel, start_led_channel) = channel_layout(&led_numbers.per_channel);
         let max_channels = (0..LED_CHANNELS).rev().find(|&n| leds_per_channel[n] > 0).unwrap_or(0);
         Gen {
             sheet,

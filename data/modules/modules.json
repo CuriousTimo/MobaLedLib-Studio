@@ -380,7 +380,7 @@
         { "id": "extra", "kind": "lamp" }
       ],
       "facts": ["H/V light distant signal (Lichtvorsignal): Vr 0, Vr 1, Vr 2; the white Zusatzlicht as an option"],
-      "unconfirmed": ["Vorsignal_RGB lights two red LEDs (L1 + L3) in state 0, so it is not mapped to this drawing"],
+      "unconfirmed": ["Vorsignal_RGB is not mapped to this drawing: it lights two red LEDs (L1 + L3) or two yellow ones (L0 + L2), which no DB distant signal shows; more likely an indicator for a fiddle yard (Schattenbahnhof)"],
       "source": ["https://github.com/CuriousTimo/Hive-Rail (assets/signals)"]
     },
     {

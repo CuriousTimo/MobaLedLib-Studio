@@ -150,6 +150,8 @@ struct Analysis {
     /// Start LED of each row (None = inactive)
     led_numbers: Vec<Option<i64>>,
     leds_per_channel: Vec<i64>,
+    /// First LED of each channel in the simulator's `leds[]` (the header's channel offsets)
+    channel_start: Vec<i64>,
     total_leds: i64,
     /// Problems found by a trial generation of the header
     errors: Vec<Diagnostic>,
@@ -187,6 +189,7 @@ fn analyze(layout: Layout, sheet: usize, lang: Option<String>) -> Result<Analysi
         total_leds: numbers.total(),
         led_numbers: numbers.rows,
         leds_per_channel: numbers.per_channel.to_vec(),
+        channel_start: codegen::channel_layout(&numbers.per_channel).1.to_vec(),
         errors,
         warnings,
         input_channels,

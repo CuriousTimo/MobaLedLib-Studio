@@ -566,6 +566,84 @@ function splitterHtml(d, plugs) {
   return `<div class="chain-splitter">${head}<div class="mod-svg">${out}</div>${warn}</div><div class="chain-link" aria-hidden="true"></div>`;
 }
 
+// The signal of the module library whose drawing a workbook signal macro lights, with the drive
+// that says which output lights each lamp (data/modules/modules.json, issue #19); null if none.
+function signalOf(macroName) {
+  for (const mod of MODULES?.library?.modules ?? []) {
+    const drive = (mod.drives ?? []).find((d) => d.macros.includes(macroName));
+    if (drive) return { mod, drive };
+  }
+  return null;
+}
+
+// Index in the simulator's byte array (r, g, b per LED) of a drive output, from the macro's LED:
+// `Cn` the n-th single output (1-based), `Ln` the red byte of the n-th RGB LED after it.
+function outputByte(base, out) {
+  const n = +out.slice(1);
+  return out[0] === 'C' ? 3 * base + n - 1 : 3 * (base + n);
+}
+
+// A signal drawn next to its row: each lamp says which LED and output light it. `base` is the
+// macro's LED in the simulator's leds[] (channel start + start number), null when the row is off.
+function signalHtml(sig, base, i) {
+  const svg = MODULES.svgs[sig.mod.svg];
+  if (!svg) return '';
+  let out = svg.replace(/<svg ([^>]*?) width="[^"]*" height="[^"]*"/, '<svg $1');
+  // optional lamps (Zusatzlicht, Sh 1 on a Ks signal) are shown when this effect lights them
+  const options = new Set();
+  for (const lamp of Object.keys(sig.drive.lamps)) {
+    const opt = out.match(new RegExp(`data-port="${lamp}" data-option="([^"]*)"`));
+    if (opt) options.add(opt[1]);
+  }
+  if (options.size) out = out.replace(/<svg ([^>]*?)class="([^"]*)"/, (_, pre, cls) => `<svg ${pre}class="${cls} ${[...options].join(' ')}"`);
+  const where = (o) => {
+    if (base == null) return o;
+    const n = +o.slice(1);
+    return o[0] === 'C' ? `LED ${base + Math.floor((n - 1) / 3)} output ${((n - 1) % 3) + 1} (${o})` : `LED ${base + n} (${o})`;
+  };
+  for (const p of sig.mod.ports) {
+    const o = sig.drive.lamps[p.id];
+    const text = o ? `${p.id}: ${where(o)}` : `${p.id}: not lit by this effect`;
+    out = out.replace(new RegExp(`(<g class="port" data-port="${p.id}"[^>]*>)`), `$1<title>${esc(text)}</title>`);
+  }
+  const extra = sig.drive.not_drawn?.length ? ` Not drawn: ${sig.drive.not_drawn.join(', ')}.` : '';
+  return `<div class="chain-signal" title="${esc(`${sig.mod.name}.${extra}`)}" ${base == null ? '' : `data-base="${base}"`} data-sig="${esc(sig.mod.id)}" data-i="${i}">${out}</div>`;
+}
+
+// The LED of row i in the simulator's leds[]: its channel's first LED plus its start number.
+function signalBase(i) {
+  const a = state.analysis;
+  const start = a?.led_numbers[i];
+  return start == null ? null : (a.channel_start?.[rows()[i].led_channel ?? 0] ?? 0) + start;
+}
+
+// The signals of the sheet, drawn for the simulator window.
+function simSignalsHtml() {
+  const items = rows().map((r, i) => {
+    const m = macroOf(r.macro_text);
+    const sig = m && r.enabled && signalOf(m.name);
+    if (!sig || signalBase(i) == null) return '';
+    return `<figure class="sim-signal">${signalHtml(sig, signalBase(i), i)}<figcaption>${esc(r.description || macroTitle(m))}</figcaption></figure>`;
+  }).join('');
+  return items ? `<div class="sim-signals">${items}</div>` : '';
+}
+
+// Lights the drawn signals from the simulator's LEDs (r, g, b bytes per LED in strip order).
+function lightSignals(leds) {
+  document.querySelectorAll('.chain-signal[data-base]').forEach((el) => {
+    const base = +el.dataset.base;
+    const row = rows()[+el.dataset.i];
+    const sig = row && signalOf(macroOf(row.macro_text)?.name);
+    if (!sig) return;
+    for (const [lamp, o] of Object.entries(sig.drive.lamps)) {
+      const b = outputByte(base, o);
+      const v = o[0] === 'C' ? leds[b] || 0 : Math.max(leds[b] || 0, leds[b + 1] || 0, leds[b + 2] || 0);
+      // the macros dim their LEDs (MaxBrightness 16..128); any lit output shows as a clearly lit lamp
+      el.style.setProperty(`--${lamp}`, v ? Math.min(1, 0.55 + v / 64).toFixed(2) : '0');
+    }
+  });
+}
+
 // How many LED positions a row takes from its start number, as the bus map counts them.
 function rowLedCount(r) {
   const leds = r.leds.trim();
@@ -625,6 +703,7 @@ function chainHtml() {
         const m = macroOf(r.macro_text);
         const kind = outputKind(r, m);
         const start = a.led_numbers[i];
+        const sig = m && signalOf(m.name);
         const n = rowLedCount(r);
         let pos;
         if (start == null) pos = '<span class="muted">off</span>';
@@ -637,6 +716,7 @@ function chainHtml() {
             <span class="grow">${esc(r.description || (m ? macroTitle(m) : 'Untitled'))}</span>
             <span class="muted">${esc(m ? macroTitle(m) : r.macro_text.split('(')[0])}</span>
             ${r.filter.trim() ? `<span class="chain-group">${esc(r.filter.trim())}</span>` : ''}
+            ${sig ? signalHtml(sig, signalBase(i), i) : ''}
           </div>`;
       }).join('');
       return `<div class="chain-seg"><div class="chain-seg-head">${title}${split}</div>${items}</div>`;
@@ -1303,6 +1383,7 @@ async function openSimulate() {
   const offLeds = await listen('sim-leds', (ev) => {
     m.leds = ev.payload;
     if (state.modal !== m) return;
+    lightSignals(m.leds);
     document.querySelectorAll('#sim-leds .led').forEach((d, k) => {
       const [r, g, b] = [m.leds[3 * k] || 0, m.leds[3 * k + 1] || 0, m.leds[3 * k + 2] || 0];
       d.style.background = `rgb(${r},${g},${b})`;
@@ -1332,6 +1413,7 @@ function simulateHtml() {
     const leds = Array.from({ length: m.numLeds }, (_, k) => `<div class="led" title="LED ${k}" style="width:18px;height:18px;border-radius:50%;border:1px solid var(--line, #8884);background:#000"></div>`).join('');
     const inputs = m.inputs.map((inp) => `<button class="btn ${m.on[inp.channel] ? 'primary' : ''}" data-act="sim-input" data-i="${inp.channel}">${esc(inp.comment && inp.comment !== '"' ? inp.comment : inp.name)} · ${m.on[inp.channel] ? 'On' : 'Off'}</button>`).join('');
     body = `<div id="sim-leds" style="display:flex;flex-wrap:wrap;gap:6px">${leds}</div>
+      ${simSignalsHtml()}
       ${m.inputs.length ? `<div style="display:flex;flex-wrap:wrap;gap:6px">${inputs}</div>` : '<div class="muted">This sheet has no inputs.</div>'}`;
   }
   return `
@@ -1577,5 +1659,9 @@ listen('tauri://drag-drop', (ev) => {
   else if (opt.view === 'upload') openUpload();
   else if (opt.view === 'settings') { state.modal = { type: 'settings' }; renderModal(); }
   else if (opt.view === 'simulate') openSimulate();
-  else if (opt.view === 'chain') { state.view = 'chain'; renderMain(); }
+  else if (opt.view === 'chain') {
+    state.view = 'chain';
+    renderMain();
+    setTimeout(() => document.querySelector('.chain-row[aria-selected="true"]')?.scrollIntoView({ block: 'center' }), 200);
+  }
 })();
